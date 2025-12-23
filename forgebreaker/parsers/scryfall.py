@@ -15,6 +15,13 @@ import httpx
 
 SCRYFALL_BULK_API = "https://api.scryfall.com/bulk-data"
 
+VALID_RARITIES = frozenset({"common", "uncommon", "rare", "mythic"})
+
+
+def _normalize_rarity(rarity: str) -> str:
+    """Normalize rarity to one of: common, uncommon, rare, mythic."""
+    return rarity if rarity in VALID_RARITIES else "common"
+
 
 class CardData(TypedDict):
     """Minimal card data we need from Scryfall."""
@@ -118,17 +125,7 @@ def load_rarity_mapping(bulk_data_path: Path) -> dict[str, str]:
 
     for card in cards:
         name = card["name"]
-        rarity = card.get("rarity", "common")
-
-        # Normalize rarity names
-        if rarity == "mythic":
-            rarity = "mythic"
-        elif rarity == "rare":
-            rarity = "rare"
-        elif rarity == "uncommon":
-            rarity = "uncommon"
-        else:
-            rarity = "common"
+        rarity = _normalize_rarity(card.get("rarity", "common"))
 
         # Later entries overwrite earlier (more recent printings)
         mapping[name] = rarity
@@ -156,7 +153,7 @@ def load_card_data(bulk_data_path: Path) -> dict[str, CardData]:
         data[name] = CardData(
             name=name,
             arena_id=card.get("arena_id"),
-            rarity=card.get("rarity", "common"),
+            rarity=_normalize_rarity(card.get("rarity", "common")),
         )
 
     return data
