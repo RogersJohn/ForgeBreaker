@@ -85,7 +85,7 @@ def _calculate_score(distance: DeckDistance) -> float:
 
     # Meta share score: 0-10 points
     meta_share = distance.deck.meta_share or 0.05  # Default 5% if unknown
-    # Cap at 50% meta share for scoring
+    # Cap at 50% to prevent dominant decks from overly skewing results
     meta_score = min(meta_share, 0.5) * 20.0
 
     return completion_score + wildcard_score + win_rate_score + meta_score

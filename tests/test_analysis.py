@@ -277,6 +277,47 @@ class TestRankDecks:
 
         assert ranked == []
 
+    def test_recommendation_reason_expensive(self, rarity_map: dict[str, str]) -> None:
+        """Expensive decks highlight mythic/rare wildcard costs."""
+        deck = MetaDeck(
+            name="Expensive Deck",
+            archetype="control",
+            format="standard",
+            cards={"Sheoldred, the Apocalypse": 4},
+        )
+        rarity_map["Sheoldred, the Apocalypse"] = "mythic"
+
+        collection = Collection()
+
+        # Use tiny budget so deck is NOT within budget
+        ranked = rank_decks([deck], collection, rarity_map, wildcard_budget=1.0)
+
+        assert "mythic" in ranked[0].recommendation_reason.lower()
+
+    def test_considers_meta_share(self, rarity_map: dict[str, str]) -> None:
+        """Higher meta share decks score higher when other factors are equal."""
+        deck_low_meta = MetaDeck(
+            name="Low Meta Deck",
+            archetype="aggro",
+            format="standard",
+            cards={"Mountain": 4},
+            meta_share=0.02,
+        )
+        deck_high_meta = MetaDeck(
+            name="High Meta Deck",
+            archetype="aggro",
+            format="standard",
+            cards={"Mountain": 4},
+            meta_share=0.20,
+        )
+
+        collection = Collection(cards={"Mountain": 4})
+
+        ranked = rank_decks([deck_low_meta, deck_high_meta], collection, rarity_map)
+
+        # Both 100% complete, same win rate, but high meta should rank first
+        assert ranked[0].deck.name == "High Meta Deck"
+
 
 class TestGetBuildableDecks:
     def test_filters_to_complete_only(self, rarity_map: dict[str, str]) -> None:
