@@ -1,0 +1,25 @@
+[
+  {
+    "name": "Lightning Bolt",
+    "arena_id": 12345,
+    "rarity": "common",
+    "set": "leb"
+  },
+  {
+    "name": "Sheoldred, the Apocalypse",
+    "arena_id": 82377,
+    "rarity": "mythic",
+    "set": "dmu"
+  },
+  {
+    "name": "Monastery Swiftspear",
+    "arena_id": 54321,
+    "rarity": "uncommon",
+    "set": "bro"
+  },
+  {
+    "name": "Card Without Arena ID",
+    "rarity": "rare",
+    "set": "leg"
+  }
+]
