@@ -89,9 +89,10 @@ function App() {
               <button
                 onClick={() => {
                   setUserId('')
+                  setUserIdInput('')
                   localStorage.removeItem('forgebreaker_user_id')
                 }}
-                className="text-sm text-gray-500 hover:text-gray-700"
+                className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
               >
                 Switch User
               </button>

@@ -13,7 +13,11 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (arenaExport.trim()) {
-      importMutation.mutate(arenaExport)
+      importMutation.mutate(arenaExport, {
+        onSuccess: () => {
+          setArenaExport('')
+        },
+      })
     }
   }
 
