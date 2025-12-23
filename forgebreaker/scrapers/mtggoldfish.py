@@ -81,7 +81,7 @@ def parse_metagame_page(html: str, format_name: str) -> list[DeckSummary]:
         r'href="(/archetype/[^"#]+)[^"]*"[^>]*>\s*'  # href with archetype URL
         r"([^<]+?)\s*</a>"  # deck name
         r".*?"  # anything between
-        r'(\d+\.?\d*)%',  # meta share percentage
+        r"(\d+\.?\d*)%",  # meta share percentage
         re.DOTALL,
     )
 
@@ -137,9 +137,9 @@ def parse_deck_page(html: str, summary: DeckSummary) -> MetaDeck:
     # Pattern: <td class="deck-col-qty">4</td>...card name
     card_pattern = re.compile(
         r'deck-col-qty">\s*(\d+)\s*</td>\s*'  # quantity
-        r'.*?'  # stuff between
+        r".*?"  # stuff between
         r'data-card-id="[^"]*"[^>]*>\s*'  # card link
-        r'([^<]+?)\s*</a>',  # card name
+        r"([^<]+?)\s*</a>",  # card name
         re.DOTALL,
     )
 
