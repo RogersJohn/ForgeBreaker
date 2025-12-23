@@ -27,6 +27,16 @@ class TestParseArenaExport:
         assert result[0].name == "Lightning Bolt"
         assert result[0].quantity == 4
         assert result[0].set_code is None
+        assert result[0].collector_number is None
+
+    def test_parse_alphanumeric_collector_number(self) -> None:
+        """Collector numbers can be alphanumeric (e.g., alternate art versions)."""
+        text = "4 Mountain (NEO) 290a"
+        result = parse_arena_export(text)
+
+        assert len(result) == 1
+        assert result[0].name == "Mountain"
+        assert result[0].collector_number == "290a"
 
     def test_parse_split_card(self) -> None:
         """Split cards have // in the name."""

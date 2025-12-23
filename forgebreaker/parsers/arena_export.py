@@ -16,9 +16,10 @@ import re
 from forgebreaker.models.card import Card
 from forgebreaker.models.collection import Collection
 
-# Pattern: "4 Lightning Bolt (LEB) 163"
+# Pattern: "4 Lightning Bolt (LEB) 163" or "4 Card (SET) 290a"
 # Groups: (quantity, card_name, set_code, collector_number)
-ARENA_FULL_PATTERN = re.compile(r"^(\d+)\s+(.+?)\s+\(([A-Z0-9]+)\)\s+(\d+)$")
+# Collector number uses \S+ to match alphanumeric variants (e.g., "290a", "123s")
+ARENA_FULL_PATTERN = re.compile(r"^(\d+)\s+(.+?)\s+\(([A-Z0-9]+)\)\s+(\S+)$")
 
 # Pattern: "4 Lightning Bolt" (no set info)
 # Groups: (quantity, card_name)
