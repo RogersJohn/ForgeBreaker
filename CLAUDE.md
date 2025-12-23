@@ -228,7 +228,7 @@ Scope: models, parser, api, frontend, ml, db
 
 <!-- Updated after each PR -->
 
-Last PR Merged: #23 jobs-meta-update
-Current PR: #24 deployment
-Next PR: #25 docs
+Last PR Merged: #24 deployment
+Current PR: #25 docs
+Next PR: None (all PRs complete)
 Blockers: None
