@@ -178,9 +178,7 @@ class TestMetaDeckDB:
         session.add(deck)
         await session.commit()
 
-        result = await session.execute(
-            select(MetaDeckDB).where(MetaDeckDB.name == "Mono Black")
-        )
+        result = await session.execute(select(MetaDeckDB).where(MetaDeckDB.name == "Mono Black"))
         saved = result.scalar_one()
 
         assert saved.cards == cards
@@ -195,9 +193,7 @@ class TestMetaDeckDB:
         session.add(deck)
         await session.commit()
 
-        result = await session.execute(
-            select(MetaDeckDB).where(MetaDeckDB.name == "Unknown Deck")
-        )
+        result = await session.execute(select(MetaDeckDB).where(MetaDeckDB.name == "Unknown Deck"))
         saved = result.scalar_one()
 
         assert saved.win_rate is None
@@ -215,9 +211,7 @@ class TestMetaDeckDB:
         )
         await session.commit()
 
-        result = await session.execute(
-            select(MetaDeckDB).where(MetaDeckDB.format == "standard")
-        )
+        result = await session.execute(select(MetaDeckDB).where(MetaDeckDB.format == "standard"))
         standard_decks = result.scalars().all()
 
         assert len(standard_decks) == 2
