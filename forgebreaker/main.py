@@ -1,3 +1,5 @@
+from importlib.metadata import version as pkg_version
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -5,13 +7,13 @@ from forgebreaker.config import settings
 
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version=pkg_version("forgebreaker"),
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Tighten in production
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
