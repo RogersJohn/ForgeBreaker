@@ -92,6 +92,12 @@ class MLForgeClient:
             data = response.json()
             scores = data.get("scores", [])
 
+            # Validate response length matches request
+            if len(scores) != len(features_list):
+                raise ValueError(
+                    f"API returned {len(scores)} scores for {len(features_list)} decks"
+                )
+
             return [
                 RecommendationScore(
                     deck_name=features_list[i].deck_name,
@@ -112,7 +118,7 @@ class MLForgeClient:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.get(f"{self.base_url}/health")
                 return response.status_code == 200
-        except httpx.HTTPError:
+        except httpx.RequestError:
             return False
 
 
@@ -131,3 +137,13 @@ def get_mlforge_client() -> MLForgeClient:
     if _client is None:
         _client = MLForgeClient()
     return _client
+
+
+def reset_mlforge_client() -> None:
+    """
+    Reset the singleton client instance.
+
+    Primarily for testing purposes.
+    """
+    global _client
+    _client = None

@@ -10,6 +10,7 @@ from forgebreaker.ml.inference import (
     MLForgeClient,
     RecommendationScore,
     get_mlforge_client,
+    reset_mlforge_client,
 )
 
 
@@ -180,6 +181,30 @@ class TestScoreDecks:
             call_args = mock_instance.post.call_args
             assert call_args[0][0] == "https://test-mlforge.example.com/api/v1/score/batch"
 
+    async def test_score_decks_raises_on_length_mismatch(self, client: MLForgeClient) -> None:
+        """Raises ValueError if API returns wrong number of scores."""
+        from unittest.mock import MagicMock
+
+        features_list = [
+            DeckFeatures(deck_name="Deck A", archetype="aggro", format="standard"),
+            DeckFeatures(deck_name="Deck B", archetype="control", format="standard"),
+        ]
+
+        mock_response = MagicMock()
+        # Return only 1 score for 2 decks
+        mock_response.json.return_value = {"scores": [{"score": 0.9, "confidence": 0.95}]}
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.AsyncClient") as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.post.return_value = mock_response
+            mock_instance.__aenter__.return_value = mock_instance
+            mock_instance.__aexit__.return_value = None
+            mock_client.return_value = mock_instance
+
+            with pytest.raises(ValueError, match="1 scores for 2 decks"):
+                await client.score_decks(features_list)
+
 
 class TestHealthCheck:
     async def test_health_check_success(self, client: MLForgeClient) -> None:
@@ -231,10 +256,7 @@ class TestHealthCheck:
 class TestGetMLForgeClient:
     def test_returns_singleton(self) -> None:
         """Returns the same instance on multiple calls."""
-        # Reset the singleton
-        import forgebreaker.ml.inference as inference_module
-
-        inference_module._client = None
+        reset_mlforge_client()
 
         client1 = get_mlforge_client()
         client2 = get_mlforge_client()
@@ -243,9 +265,7 @@ class TestGetMLForgeClient:
 
     def test_creates_client_on_first_call(self) -> None:
         """Creates client instance on first call."""
-        import forgebreaker.ml.inference as inference_module
-
-        inference_module._client = None
+        reset_mlforge_client()
 
         client = get_mlforge_client()
 

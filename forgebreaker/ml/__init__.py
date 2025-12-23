@@ -11,6 +11,7 @@ from forgebreaker.ml.inference import (
     MLForgeClient,
     RecommendationScore,
     get_mlforge_client,
+    reset_mlforge_client,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "extract_collection_features",
     "extract_deck_features",
     "get_mlforge_client",
+    "reset_mlforge_client",
 ]
