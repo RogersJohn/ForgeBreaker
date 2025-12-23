@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { apiClient } from './api/client'
 import { CollectionImporter } from './components/CollectionImporter'
+import { DeckBrowser } from './components/DeckBrowser'
 
 function App() {
   const [userId, setUserId] = useState(() => {
@@ -99,19 +100,9 @@ function App() {
             </div>
 
             {/* Main Content */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <CollectionImporter userId={userId} />
-
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
               <div className="space-y-6">
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Browse Decks
-                  </h3>
-                  <p className="text-gray-500 mt-2">
-                    Explore meta decks and see which ones you can build.
-                  </p>
-                  <p className="text-sm text-gray-400 mt-4">Coming soon...</p>
-                </div>
+                <CollectionImporter userId={userId} />
 
                 <div className="bg-white rounded-lg shadow p-6">
                   <h3 className="text-lg font-medium text-gray-900">
@@ -122,6 +113,10 @@ function App() {
                   </p>
                   <p className="text-sm text-gray-400 mt-4">Coming soon...</p>
                 </div>
+              </div>
+
+              <div className="xl:col-span-2">
+                <DeckBrowser userId={userId} />
               </div>
             </div>
           </>
