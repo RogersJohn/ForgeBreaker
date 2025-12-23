@@ -143,6 +143,26 @@ class TestUpdateCollection:
         assert response.status_code == 400
         assert "positive" in response.json()["detail"].lower()
 
+    async def test_empty_card_name_rejected(self, client: AsyncClient) -> None:
+        """Empty card names are rejected."""
+        response = await client.put(
+            "/collection/user-123",
+            json={"cards": {"": 4}},
+        )
+
+        assert response.status_code == 400
+        assert "empty" in response.json()["detail"].lower()
+
+    async def test_whitespace_card_name_rejected(self, client: AsyncClient) -> None:
+        """Whitespace-only card names are rejected."""
+        response = await client.put(
+            "/collection/user-123",
+            json={"cards": {"   ": 4}},
+        )
+
+        assert response.status_code == 400
+        assert "empty" in response.json()["detail"].lower()
+
 
 class TestDeleteCollection:
     async def test_delete_existing_collection(self, client: AsyncClient) -> None:

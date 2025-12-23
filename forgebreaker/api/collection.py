@@ -62,9 +62,8 @@ async def get_user_collection(
         return CollectionResponse(user_id=user_id, cards={}, total_cards=0)
 
     model = collection_to_model(db_collection)
-    total = sum(model.cards.values())
 
-    return CollectionResponse(user_id=user_id, cards=model.cards, total_cards=total)
+    return CollectionResponse(user_id=user_id, cards=model.cards, total_cards=model.total_cards())
 
 
 @router.put("/{user_id}", response_model=CollectionResponse)
@@ -85,8 +84,13 @@ async def update_user_collection(
             detail="Cards cannot be empty",
         )
 
-    # Validate quantities are positive
+    # Validate card names and quantities
     for card_name, qty in request.cards.items():
+        if not card_name or not card_name.strip():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Card names cannot be empty",
+            )
         if qty <= 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -95,9 +99,8 @@ async def update_user_collection(
 
     db_collection = await update_collection_cards(session, user_id, request.cards)
     model = collection_to_model(db_collection)
-    total = sum(model.cards.values())
 
-    return CollectionResponse(user_id=user_id, cards=model.cards, total_cards=total)
+    return CollectionResponse(user_id=user_id, cards=model.cards, total_cards=model.total_cards())
 
 
 @router.delete("/{user_id}", response_model=DeleteResponse)
