@@ -228,7 +228,7 @@ Scope: models, parser, api, frontend, ml, db
 
 <!-- Updated after each PR -->
 
-Last PR Merged: #15 ml-inference
-Current PR: #16 mcp-tools
-Next PR: #17 api-chat
+Last PR Merged: #16 mcp-tools
+Current PR: #17 api-chat
+Next PR: #18 frontend-setup
 Blockers: None
