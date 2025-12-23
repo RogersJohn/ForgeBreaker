@@ -5,7 +5,7 @@ Provides async functions for creating, reading, updating, and deleting
 collections and meta decks.
 """
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -90,7 +90,7 @@ async def update_collection_cards(
     return collection
 
 
-async def collection_to_model(collection: UserCollectionDB) -> Collection:
+def collection_to_model(collection: UserCollectionDB) -> Collection:
     """Convert a database collection to a domain model."""
     cards = {card.card_name: card.quantity for card in collection.cards}
     return Collection(cards=cards)
@@ -171,7 +171,7 @@ async def upsert_meta_deck(session: AsyncSession, deck: MetaDeck) -> MetaDeckDB:
     return db_deck
 
 
-async def meta_deck_to_model(db_deck: MetaDeckDB) -> MetaDeck:
+def meta_deck_to_model(db_deck: MetaDeckDB) -> MetaDeck:
     """Convert a database meta deck to a domain model."""
     return MetaDeck(
         name=db_deck.name,
@@ -191,14 +191,9 @@ async def delete_meta_decks_by_format(session: AsyncSession, format_name: str) -
 
     Returns the number of deleted records.
     """
-    result = await session.execute(select(MetaDeckDB).where(MetaDeckDB.format == format_name))
-    decks = result.scalars().all()
-    count = len(decks)
-
-    for deck in decks:
-        await session.delete(deck)
-
-    return count
+    result = await session.execute(delete(MetaDeckDB).where(MetaDeckDB.format == format_name))
+    # rowcount is available on DELETE results; type stubs incomplete for async
+    return int(result.rowcount)  # type: ignore[attr-defined]
 
 
 async def sync_meta_decks(session: AsyncSession, format_name: str, decks: list[MetaDeck]) -> int:

@@ -111,7 +111,7 @@ class TestCollectionOperations:
         await session.commit()
 
         db_collection = await get_collection(session, "user-123")
-        model = await collection_to_model(db_collection)
+        model = collection_to_model(db_collection)
 
         assert model.get_quantity("Lightning Bolt") == 4
         assert model.get_quantity("Mountain") == 20
@@ -215,7 +215,7 @@ class TestMetaDeckOperations:
         db_deck = await upsert_meta_deck(session, sample_deck)
         await session.commit()
 
-        model = await meta_deck_to_model(db_deck)
+        model = meta_deck_to_model(db_deck)
 
         assert model.name == "Mono Red Aggro"
         assert model.cards["Lightning Bolt"] == 4
