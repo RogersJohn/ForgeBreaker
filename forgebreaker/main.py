@@ -3,7 +3,13 @@ from importlib.metadata import version as pkg_version
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from forgebreaker.api import collection_router, decks_router, distance_router, health_router
+from forgebreaker.api import (
+    chat_router,
+    collection_router,
+    decks_router,
+    distance_router,
+    health_router,
+)
 from forgebreaker.config import settings
 
 app = FastAPI(
@@ -11,6 +17,7 @@ app = FastAPI(
     version=pkg_version("forgebreaker"),
 )
 
+app.include_router(chat_router)
 app.include_router(collection_router)
 app.include_router(decks_router)
 app.include_router(distance_router)
