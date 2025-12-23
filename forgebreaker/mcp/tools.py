@@ -87,8 +87,7 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
     ToolDefinition(
         name="get_collection_stats",
         description=(
-            "Get statistics about a user's card collection. "
-            "Returns total cards, unique cards, and breakdown by rarity."
+            "Get statistics about a user's card collection. Returns total cards and unique cards."
         ),
         parameters={
             "type": "object",
