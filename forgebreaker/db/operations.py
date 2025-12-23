@@ -79,7 +79,11 @@ async def update_collection_cards(
         raise RuntimeError(msg)
     collection = loaded
 
-    # Clear existing cards
+    # Delete existing cards from database first
+    await session.execute(
+        delete(CardOwnershipDB).where(CardOwnershipDB.collection_id == collection.id)
+    )
+    # Clear the ORM list to stay in sync
     collection.cards.clear()
 
     # Add new cards
