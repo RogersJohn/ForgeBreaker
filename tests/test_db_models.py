@@ -215,3 +215,28 @@ class TestMetaDeckDB:
         standard_decks = result.scalars().all()
 
         assert len(standard_decks) == 2
+
+    async def test_updated_at_changes_on_update(self, session: AsyncSession) -> None:
+        """Updated_at timestamp changes when record is modified."""
+        import asyncio
+
+        deck = MetaDeckDB(
+            name="Update Test Deck",
+            archetype="aggro",
+            format="standard",
+        )
+        session.add(deck)
+        await session.commit()
+
+        original_updated_at = deck.updated_at
+
+        # Small delay to ensure timestamp difference
+        await asyncio.sleep(0.1)
+
+        # Update the deck
+        deck.win_rate = 0.55
+        await session.commit()
+        await session.refresh(deck)
+
+        # updated_at should have changed
+        assert deck.updated_at >= original_updated_at

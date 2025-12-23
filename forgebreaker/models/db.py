@@ -7,7 +7,17 @@ Models mirror the dataclass models but add database persistence.
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func
+from sqlalchemy import (
+    JSON,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -50,6 +60,7 @@ class CardOwnershipDB(Base):
     """
 
     __tablename__ = "card_ownership"
+    __table_args__ = (UniqueConstraint("collection_id", "card_name", name="uq_collection_card"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     collection_id: Mapped[int] = mapped_column(
@@ -73,6 +84,7 @@ class MetaDeckDB(Base):
     """
 
     __tablename__ = "meta_decks"
+    __table_args__ = (UniqueConstraint("name", "format", name="uq_deck_name_format"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255), index=True)
