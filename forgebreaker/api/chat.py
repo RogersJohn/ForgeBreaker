@@ -6,10 +6,17 @@ deck recommendations and collection management.
 """
 
 import json
+import logging
 from typing import Annotated, Any, cast
 
 import anthropic
-from anthropic.types import MessageParam, ToolParam, ToolResultBlockParam, ToolUseBlock
+from anthropic.types import (
+    MessageParam,
+    TextBlock,
+    ToolParam,
+    ToolResultBlockParam,
+    ToolUseBlock,
+)
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +24,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from forgebreaker.config import settings
 from forgebreaker.db.database import get_session
 from forgebreaker.mcp.tools import TOOL_DEFINITIONS, execute_tool
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -29,6 +38,9 @@ SYSTEM_PROMPT = """You are ForgeBreaker, an MTG Arena deck advisor. You help use
 
 Use the available tools to look up information. Be concise and helpful.
 When recommending decks, explain why they're good choices based on completion percentage.
+
+Note: All tool calls are automatically scoped to the authenticated user's data.
+You do not need to provide user_id in tool calls - it is injected by the server.
 """
 
 
@@ -70,15 +82,20 @@ def _get_anthropic_tools() -> list[ToolParam]:
 async def _process_tool_calls(
     session: AsyncSession,
     tool_calls: list[ToolUseBlock],
+    user_id: str,
 ) -> list[ToolResultBlockParam]:
     """Execute tool calls and return results."""
     results: list[ToolResultBlockParam] = []
     for tool_call in tool_calls:
         try:
+            # Inject user_id server-side for security
+            tool_input = cast(dict[str, Any], tool_call.input)
+            tool_input["user_id"] = user_id
+
             result = await execute_tool(
                 session,
                 tool_call.name,
-                cast(dict[str, Any], tool_call.input),
+                tool_input,
             )
             results.append(
                 {
@@ -87,7 +104,8 @@ async def _process_tool_calls(
                     "content": json.dumps(result),
                 }
             )
-        except ValueError as e:
+        except Exception as e:
+            logger.exception("Tool execution error for %s", tool_call.name)
             results.append(
                 {
                     "type": "tool_result",
@@ -99,7 +117,7 @@ async def _process_tool_calls(
     return results
 
 
-@router.post("", response_model=ChatResponse)
+@router.post("/", response_model=ChatResponse)
 async def chat(
     request: ChatRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -132,7 +150,7 @@ async def chat(
     for _ in range(max_iterations):
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+            max_tokens=2048,
             system=SYSTEM_PROMPT,
             tools=tools,
             messages=messages,
@@ -145,7 +163,7 @@ async def chat(
             # No tool calls, extract text response
             text_content = ""
             for block in response.content:
-                if hasattr(block, "text"):
+                if isinstance(block, TextBlock):
                     text_content += block.text
 
             return ChatResponse(
@@ -153,8 +171,8 @@ async def chat(
                 tool_calls=tool_calls_made,
             )
 
-        # Process tool calls
-        tool_results = await _process_tool_calls(session, tool_use_blocks)
+        # Process tool calls with server-injected user_id
+        tool_results = await _process_tool_calls(session, tool_use_blocks, request.user_id)
 
         # Record tool calls for response
         for block in tool_use_blocks:

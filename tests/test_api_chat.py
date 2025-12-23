@@ -57,7 +57,7 @@ class TestChatEndpoint:
 
             client = TestClient(app)
             response = client.post(
-                "/chat",
+                "/chat/",
                 json={
                     "user_id": "user123",
                     "messages": [{"role": "user", "content": "Hello"}],
@@ -69,8 +69,13 @@ class TestChatEndpoint:
 
     def test_successful_chat_without_tools(self) -> None:
         """Returns response when Claude doesn't use tools."""
+        from anthropic.types import TextBlock
+
+        mock_text_block = MagicMock(spec=TextBlock)
+        mock_text_block.text = "Hello! How can I help?"
+
         mock_response = MagicMock()
-        mock_response.content = [MagicMock(type="text", text="Hello! How can I help?")]
+        mock_response.content = [mock_text_block]
 
         with (
             patch("forgebreaker.api.chat.settings") as mock_settings,
@@ -83,7 +88,7 @@ class TestChatEndpoint:
 
             client = TestClient(app)
             response = client.post(
-                "/chat",
+                "/chat/",
                 json={
                     "user_id": "user123",
                     "messages": [{"role": "user", "content": "Hello"}],
@@ -103,7 +108,7 @@ class TestChatEndpoint:
 
             client = TestClient(app)
             response = client.post(
-                "/chat",
+                "/chat/",
                 json={
                     "user_id": "user123",
                     "messages": [{"role": "system", "content": "Hello"}],
@@ -119,7 +124,7 @@ class TestChatEndpoint:
 
             client = TestClient(app)
             response = client.post(
-                "/chat",
+                "/chat/",
                 json={
                     "user_id": "user123",
                     "messages": [],
@@ -160,7 +165,7 @@ class TestChatRequestValidation:
 
             client = TestClient(app)
             response = client.post(
-                "/chat",
+                "/chat/",
                 json={
                     "messages": [{"role": "user", "content": "Hello"}],
                 },
@@ -175,7 +180,7 @@ class TestChatRequestValidation:
 
             client = TestClient(app)
             response = client.post(
-                "/chat",
+                "/chat/",
                 json={
                     "user_id": "user123",
                 },
