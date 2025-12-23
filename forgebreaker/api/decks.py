@@ -50,19 +50,21 @@ async def get_decks_by_format(
     """
     db_decks = await get_meta_decks_by_format(session, format_name, limit=limit)
 
-    decks = [
-        DeckResponse(
-            name=meta_deck_to_model(d).name,
-            archetype=meta_deck_to_model(d).archetype,
-            format=meta_deck_to_model(d).format,
-            cards=meta_deck_to_model(d).cards,
-            sideboard=meta_deck_to_model(d).sideboard or {},
-            win_rate=meta_deck_to_model(d).win_rate,
-            meta_share=meta_deck_to_model(d).meta_share,
-            source_url=meta_deck_to_model(d).source_url,
+    decks: list[DeckResponse] = []
+    for d in db_decks:
+        model = meta_deck_to_model(d)
+        decks.append(
+            DeckResponse(
+                name=model.name,
+                archetype=model.archetype,
+                format=model.format,
+                cards=model.cards,
+                sideboard=model.sideboard or {},
+                win_rate=model.win_rate,
+                meta_share=model.meta_share,
+                source_url=model.source_url,
+            )
         )
-        for d in db_decks
-    ]
 
     return DeckListResponse(format=format_name, decks=decks, count=len(decks))
 

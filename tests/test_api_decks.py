@@ -128,6 +128,24 @@ class TestGetDecksByFormat:
         assert data["count"] == 1
         assert data["decks"][0]["name"] == "Mono Red Aggro"
 
+    async def test_limit_zero_rejected(self, client: AsyncClient) -> None:
+        """Limit of 0 is rejected."""
+        response = await client.get("/decks/standard?limit=0")
+
+        assert response.status_code == 422
+
+    async def test_limit_negative_rejected(self, client: AsyncClient) -> None:
+        """Negative limit is rejected."""
+        response = await client.get("/decks/standard?limit=-1")
+
+        assert response.status_code == 422
+
+    async def test_limit_exceeds_max_rejected(self, client: AsyncClient) -> None:
+        """Limit over 100 is rejected."""
+        response = await client.get("/decks/standard?limit=101")
+
+        assert response.status_code == 422
+
     async def test_deck_includes_all_fields(
         self,
         client: AsyncClient,
