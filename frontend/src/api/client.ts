@@ -25,6 +25,14 @@ export interface CollectionResponse {
   user_id: string
   total_cards: number
   unique_cards: number
+  cards?: Record<string, number>
+}
+
+export interface ImportResponse {
+  user_id: string
+  cards_imported: number
+  total_cards: number
+  cards: Record<string, number>
 }
 
 export interface DistanceResponse {
@@ -106,11 +114,13 @@ class ApiClient {
 
   async importCollection(
     userId: string,
-    arenaExport: string
-  ): Promise<CollectionResponse> {
-    return this.request(`/collection/${userId}`, {
+    text: string,
+    format: 'auto' | 'simple' | 'csv' | 'arena' = 'auto',
+    merge = false
+  ): Promise<ImportResponse> {
+    return this.request(`/collection/${userId}/import`, {
       method: 'POST',
-      body: JSON.stringify({ arena_export: arenaExport }),
+      body: JSON.stringify({ text, format, merge }),
     })
   }
 

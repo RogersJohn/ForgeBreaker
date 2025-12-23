@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '../api/client'
-import type { CollectionResponse } from '../api/client'
+import type { CollectionResponse, ImportResponse } from '../api/client'
 
 export function useCollection(userId: string) {
   return useQuery({
@@ -11,14 +11,27 @@ export function useCollection(userId: string) {
   })
 }
 
+interface ImportOptions {
+  text: string
+  format?: 'auto' | 'simple' | 'csv' | 'arena'
+  merge?: boolean
+}
+
 export function useImportCollection(userId: string) {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: (arenaExport: string) =>
-      apiClient.importCollection(userId, arenaExport),
-    onSuccess: (data: CollectionResponse) => {
-      queryClient.setQueryData(['collection', userId], data)
+    mutationFn: ({ text, format = 'auto', merge = false }: ImportOptions) =>
+      apiClient.importCollection(userId, text, format, merge),
+    onSuccess: (data: ImportResponse) => {
+      // Update cached collection with new data
+      const collection: CollectionResponse = {
+        user_id: data.user_id,
+        total_cards: data.total_cards,
+        unique_cards: data.cards_imported,
+        cards: data.cards,
+      }
+      queryClient.setQueryData(['collection', userId], collection)
     },
   })
 }
