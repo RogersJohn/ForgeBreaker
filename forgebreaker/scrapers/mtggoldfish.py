@@ -17,8 +17,8 @@ from forgebreaker.models.deck import MetaDeck
 MTGGOLDFISH_BASE = "https://www.mtggoldfish.com"
 USER_AGENT = "ForgeBreaker/1.0 (MTG Arena Collection Manager)"
 
-# Valid Arena formats on MTGGoldfish
-VALID_FORMATS = frozenset({"standard", "historic", "explorer", "timeless", "brawl"})
+# Valid Arena formats on MTGGoldfish (excludes Brawl - singleton format with no sideboard)
+VALID_FORMATS = frozenset({"standard", "historic", "explorer", "timeless"})
 
 
 @dataclass
@@ -133,20 +133,26 @@ def parse_deck_page(html: str, summary: DeckSummary) -> MetaDeck:
     cards: dict[str, int] = {}
     sideboard: dict[str, int] = {}
 
-    # Parse main deck cards
-    # Pattern: <td class="deck-col-qty">4</td>...card name
+    # HTML structure we're matching (simplified):
+    #   <td class="deck-col-qty">4</td>
+    #   ... (other <td> / markup) ...
+    #   <a data-card-id="12345" ...>Card Name</a>
+    #
+    # Group 1: numeric quantity from "deck-col-qty" cell
+    # Group 2: card name text inside the <a> tag
+    # DOTALL needed because content between quantity and card link spans multiple lines
     card_pattern = re.compile(
-        r'deck-col-qty">\s*(\d+)\s*</td>\s*'  # quantity
-        r".*?"  # stuff between
-        r'data-card-id="[^"]*"[^>]*>\s*'  # card link
-        r"([^<]+?)\s*</a>",  # card name
+        r'deck-col-qty">\s*(\d+)\s*</td>\s*'  # group 1: quantity in deck-col-qty cell
+        r".*?"  # non-greedy skip over intervening HTML (other <td>, whitespace)
+        r'data-card-id="[^"]*"[^>]*>\s*'  # card link anchor with data-card-id
+        r"([^<]+?)\s*</a>",  # group 2: card name text up to closing </a>
         re.DOTALL,
     )
 
-    # Find sideboard section marker
+    # Find sideboard section marker (-1 if not found)
     sideboard_marker = html.find("Sideboard")
-    main_section = html[:sideboard_marker] if sideboard_marker > 0 else html
-    side_section = html[sideboard_marker:] if sideboard_marker > 0 else ""
+    main_section = html[:sideboard_marker] if sideboard_marker != -1 else html
+    side_section = html[sideboard_marker:] if sideboard_marker != -1 else ""
 
     # Parse main deck
     for match in card_pattern.finditer(main_section):
