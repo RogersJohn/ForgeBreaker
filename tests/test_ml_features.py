@@ -90,6 +90,15 @@ class TestExtractCollectionFeatures:
 
         assert features.common_count == 4
 
+    def test_unexpected_rarity_falls_back_to_common(self) -> None:
+        """Cards with unexpected rarity values are counted as common."""
+        collection = Collection(cards={"Special Card": 4})
+        rarity_map = {"Special Card": "special"}  # Not a standard rarity
+
+        features = extract_collection_features(collection, rarity_map)
+
+        assert features.common_count == 4
+
     def test_to_dict(self) -> None:
         """Features convert to dictionary."""
         features = CollectionFeatures(

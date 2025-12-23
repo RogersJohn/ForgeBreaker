@@ -142,6 +142,9 @@ def extract_collection_features(
             features.rare_count += quantity
         elif rarity == "mythic":
             features.mythic_count += quantity
+        else:
+            # Fallback: treat unexpected rarity as common
+            features.common_count += quantity
 
     return features
 
