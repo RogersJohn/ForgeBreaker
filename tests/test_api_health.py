@@ -77,3 +77,25 @@ class TestReadyEndpoint:
 
         data = response.json()
         assert "database" in data
+
+    async def test_ready_returns_503_on_db_failure(self) -> None:
+        """Readiness probe returns 503 when DB is unavailable."""
+        from unittest.mock import AsyncMock
+
+        async def override_get_session_broken():
+            mock_session = AsyncMock()
+            mock_session.execute.side_effect = Exception("Database connection failed")
+            yield mock_session
+
+        app.dependency_overrides[get_session] = override_get_session_broken
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/ready")
+
+        app.dependency_overrides.clear()
+
+        assert response.status_code == 503
+        data = response.json()
+        assert data["status"] == "not ready"
+        assert data["database"] == "disconnected"
