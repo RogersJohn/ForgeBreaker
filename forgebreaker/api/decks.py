@@ -1,0 +1,100 @@
+"""
+Deck API endpoints.
+
+Provides endpoints for querying meta decks by format.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from forgebreaker.db import get_meta_deck, get_meta_decks_by_format, meta_deck_to_model
+from forgebreaker.db.database import get_session
+
+router = APIRouter(prefix="/decks", tags=["decks"])
+
+
+class DeckResponse(BaseModel):
+    """Response model for a single deck."""
+
+    name: str
+    archetype: str
+    format: str
+    cards: dict[str, int] = Field(default_factory=dict)
+    sideboard: dict[str, int] = Field(default_factory=dict)
+    win_rate: float | None = None
+    meta_share: float | None = None
+    source_url: str | None = None
+
+
+class DeckListResponse(BaseModel):
+    """Response model for a list of decks."""
+
+    format: str
+    decks: list[DeckResponse]
+    count: int
+
+
+@router.get("/{format_name}", response_model=DeckListResponse)
+async def get_decks_by_format(
+    format_name: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 50,
+) -> DeckListResponse:
+    """
+    Get meta decks for a format.
+
+    Returns decks ordered by meta share (descending).
+    """
+    db_decks = await get_meta_decks_by_format(session, format_name, limit=limit)
+
+    decks = [
+        DeckResponse(
+            name=meta_deck_to_model(d).name,
+            archetype=meta_deck_to_model(d).archetype,
+            format=meta_deck_to_model(d).format,
+            cards=meta_deck_to_model(d).cards,
+            sideboard=meta_deck_to_model(d).sideboard or {},
+            win_rate=meta_deck_to_model(d).win_rate,
+            meta_share=meta_deck_to_model(d).meta_share,
+            source_url=meta_deck_to_model(d).source_url,
+        )
+        for d in db_decks
+    ]
+
+    return DeckListResponse(format=format_name, decks=decks, count=len(decks))
+
+
+@router.get("/{format_name}/{deck_name}", response_model=DeckResponse)
+async def get_deck_by_name(
+    format_name: str,
+    deck_name: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DeckResponse:
+    """
+    Get a specific deck by format and name.
+
+    Returns 404 if deck not found.
+    """
+    db_deck = await get_meta_deck(session, deck_name, format_name)
+
+    if db_deck is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Deck '{deck_name}' not found in format '{format_name}'",
+        )
+
+    model = meta_deck_to_model(db_deck)
+
+    return DeckResponse(
+        name=model.name,
+        archetype=model.archetype,
+        format=model.format,
+        cards=model.cards,
+        sideboard=model.sideboard or {},
+        win_rate=model.win_rate,
+        meta_share=model.meta_share,
+        source_url=model.source_url,
+    )
