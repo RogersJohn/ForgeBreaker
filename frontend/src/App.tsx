@@ -1,14 +1,17 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import type { DeckResponse } from './api/client'
 import { apiClient } from './api/client'
 import { CollectionImporter } from './components/CollectionImporter'
 import { DeckBrowser } from './components/DeckBrowser'
+import { DeckDetail } from './components/DeckDetail'
 
 function App() {
   const [userId, setUserId] = useState(() => {
     return localStorage.getItem('forgebreaker_user_id') || ''
   })
   const [userIdInput, setUserIdInput] = useState(userId)
+  const [selectedDeck, setSelectedDeck] = useState<DeckResponse | null>(null)
 
   const { data: health, isLoading, error } = useQuery({
     queryKey: ['health'],
@@ -116,7 +119,18 @@ function App() {
               </div>
 
               <div className="xl:col-span-2">
-                <DeckBrowser userId={userId} />
+                {selectedDeck ? (
+                  <DeckDetail
+                    deck={selectedDeck}
+                    userId={userId}
+                    onClose={() => setSelectedDeck(null)}
+                  />
+                ) : (
+                  <DeckBrowser
+                    userId={userId}
+                    onSelectDeck={setSelectedDeck}
+                  />
+                )}
               </div>
             </div>
           </>
