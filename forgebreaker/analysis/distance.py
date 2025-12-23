@@ -25,30 +25,20 @@ def calculate_deck_distance(
     Returns:
         DeckDistance with completion stats and missing cards
     """
+    # Aggregate total needed for each card (maindeck + sideboard)
+    total_needed: dict[str, int] = {}
+    for card_name, qty in deck.cards.items():
+        total_needed[card_name] = total_needed.get(card_name, 0) + qty
+    for card_name, qty in deck.sideboard.items():
+        total_needed[card_name] = total_needed.get(card_name, 0) + qty
+
     owned_cards = 0
     missing_cards = 0
     missing_card_list: list[tuple[str, int, str]] = []
-
     wildcard_cost = WildcardCost()
 
-    # Check maindeck cards
-    for card_name, needed in deck.cards.items():
-        owned = collection.get_quantity(card_name)
-        have = min(owned, needed)
-        owned_cards += have
-
-        if owned < needed:
-            missing_qty = needed - owned
-            missing_cards += missing_qty
-
-            rarity = rarity_map.get(card_name, "common")
-            missing_card_list.append((card_name, missing_qty, rarity))
-
-            # Add to wildcard cost
-            _add_wildcard_cost(wildcard_cost, rarity, missing_qty)
-
-    # Check sideboard cards
-    for card_name, needed in deck.sideboard.items():
+    # Check each unique card once
+    for card_name, needed in total_needed.items():
         owned = collection.get_quantity(card_name)
         have = min(owned, needed)
         owned_cards += have
@@ -63,7 +53,7 @@ def calculate_deck_distance(
             _add_wildcard_cost(wildcard_cost, rarity, missing_qty)
 
     # Calculate completion percentage
-    total_cards = sum(deck.cards.values()) + sum(deck.sideboard.values())
+    total_cards = sum(total_needed.values())
     completion_pct = owned_cards / total_cards if total_cards > 0 else 1.0
 
     return DeckDistance(

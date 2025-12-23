@@ -141,3 +141,21 @@ class TestCalculateDeckDistance:
 
         assert distance.is_complete
         assert distance.completion_percentage == 1.0
+
+    def test_card_in_maindeck_and_sideboard(self, rarity_map: dict[str, str]) -> None:
+        """Card appearing in both maindeck and sideboard counts owned copies once."""
+        deck = MetaDeck(
+            name="Overlap Test",
+            archetype="test",
+            format="standard",
+            cards={"Lightning Bolt": 4},  # 4 in maindeck
+            sideboard={"Lightning Bolt": 2},  # 2 in sideboard, 6 total needed
+        )
+        collection = Collection(cards={"Lightning Bolt": 4})  # Own 4
+
+        distance = calculate_deck_distance(deck, collection, rarity_map)
+
+        # Need 6 total, own 4, missing 2
+        assert distance.owned_cards == 4
+        assert distance.missing_cards == 2
+        assert distance.wildcard_cost.common == 2
