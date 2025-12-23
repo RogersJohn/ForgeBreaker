@@ -228,7 +228,7 @@ Scope: models, parser, api, frontend, ml, db
 
 <!-- Updated after each PR -->
 
-Last PR Merged: #7 scraper-mtggoldfish
-Current PR: #8 db-models
-Next PR: #9 db-operations
+Last PR Merged: #15 ml-inference
+Current PR: #16 mcp-tools
+Next PR: #17 api-chat
 Blockers: None
