@@ -5,19 +5,57 @@ interface CollectionImporterProps {
   userId: string
 }
 
+type Tab = 'tracker' | 'decks'
+
 export function CollectionImporter({ userId }: CollectionImporterProps) {
-  const [arenaExport, setArenaExport] = useState('')
+  const [activeTab, setActiveTab] = useState<Tab>('tracker')
+  const [importText, setImportText] = useState('')
+  const [deckTexts, setDeckTexts] = useState<string[]>([''])
   const { data: collection, isLoading, error } = useCollection(userId)
   const importMutation = useImportCollection(userId)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleTrackerSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (arenaExport.trim()) {
-      importMutation.mutate(arenaExport, {
-        onSuccess: () => {
-          setArenaExport('')
-        },
-      })
+    if (importText.trim()) {
+      importMutation.mutate(
+        { text: importText },
+        {
+          onSuccess: () => {
+            setImportText('')
+          },
+        }
+      )
+    }
+  }
+
+  const handleDecksSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const combinedText = deckTexts.filter((t) => t.trim()).join('\n\n')
+    if (combinedText.trim()) {
+      importMutation.mutate(
+        { text: combinedText, merge: true },
+        {
+          onSuccess: () => {
+            setDeckTexts([''])
+          },
+        }
+      )
+    }
+  }
+
+  const addDeckField = () => {
+    setDeckTexts([...deckTexts, ''])
+  }
+
+  const updateDeck = (index: number, value: string) => {
+    const updated = [...deckTexts]
+    updated[index] = value
+    setDeckTexts(updated)
+  }
+
+  const removeDeck = (index: number) => {
+    if (deckTexts.length > 1) {
+      setDeckTexts(deckTexts.filter((_, i) => i !== index))
     }
   }
 
@@ -57,45 +95,184 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
         </div>
       )}
 
-      <form onSubmit={handleSubmit}>
-        <label
-          htmlFor="arena-export"
-          className="block text-sm font-medium text-gray-700 mb-2"
-        >
-          Import from MTG Arena
-        </label>
-        <p className="text-sm text-gray-500 mb-3">
-          In MTG Arena, go to Collection, click Export, and paste the text below.
-        </p>
-        <textarea
-          id="arena-export"
-          value={arenaExport}
-          onChange={(e) => setArenaExport(e.target.value)}
-          placeholder="Paste your Arena collection export here..."
-          className="w-full h-48 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
-          disabled={importMutation.isPending}
-        />
+      {/* Tab Navigation */}
+      <div className="border-b border-gray-200 mb-4">
+        <nav className="-mb-px flex space-x-8">
+          <button
+            onClick={() => setActiveTab('tracker')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'tracker'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            From Tracker Export
+          </button>
+          <button
+            onClick={() => setActiveTab('decks')}
+            className={`py-2 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'decks'
+                ? 'border-indigo-500 text-indigo-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            From Deck Lists
+          </button>
+        </nav>
+      </div>
 
-        {importMutation.isError && (
-          <p className="mt-2 text-sm text-red-600">
-            Failed to import collection. Please check the format and try again.
+      {/* Tracker Export Tab */}
+      {activeTab === 'tracker' && (
+        <form onSubmit={handleTrackerSubmit}>
+          <label
+            htmlFor="tracker-export"
+            className="block text-sm font-medium text-gray-700 mb-2"
+          >
+            Import from Tracker or Collection Manager
+          </label>
+          <p className="text-sm text-gray-500 mb-3">
+            MTG Arena does not have a built-in collection export. Use a tracker
+            like{' '}
+            <a
+              href="https://mtgaassistant.net/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 hover:text-indigo-500"
+            >
+              MTGA Assistant
+            </a>
+            ,{' '}
+            <a
+              href="https://www.mtggoldfish.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 hover:text-indigo-500"
+            >
+              MTGGoldfish
+            </a>
+            , or{' '}
+            <a
+              href="https://mtgahelper.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-indigo-600 hover:text-indigo-500"
+            >
+              MTGAHelper
+            </a>{' '}
+            to export your collection, then paste below.
           </p>
-        )}
+          <div className="mb-3 p-3 bg-gray-50 rounded text-xs text-gray-600 font-mono">
+            <p className="font-semibold mb-1">Accepted formats:</p>
+            <p>4 Lightning Bolt</p>
+            <p>4x Monastery Swiftspear</p>
+            <p>"Card Name",Quantity,Set</p>
+          </div>
+          <textarea
+            id="tracker-export"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+            placeholder="Paste your collection export here..."
+            className="w-full h-48 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
+            disabled={importMutation.isPending}
+          />
 
-        {importMutation.isSuccess && (
-          <p className="mt-2 text-sm text-green-600">
-            Collection imported successfully!
+          {importMutation.isError && (
+            <p className="mt-2 text-sm text-red-600">
+              Failed to import collection. Please check the format and try again.
+            </p>
+          )}
+
+          {importMutation.isSuccess && (
+            <p className="mt-2 text-sm text-green-600">
+              Collection imported successfully!
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={importMutation.isPending || !importText.trim()}
+            className="mt-4 w-full py-2 px-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importMutation.isPending ? 'Importing...' : 'Import Collection'}
+          </button>
+        </form>
+      )}
+
+      {/* Deck Lists Tab */}
+      {activeTab === 'decks' && (
+        <form onSubmit={handleDecksSubmit}>
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Import from Deck Lists
+          </label>
+          <p className="text-sm text-gray-500 mb-3">
+            In Arena, open a deck and click the export button (or use Ctrl+C).
+            Paste each deck below. We&apos;ll combine them to estimate your
+            collection.
           </p>
-        )}
+          <div className="mb-3 p-3 bg-gray-50 rounded text-xs text-gray-600 font-mono">
+            <p className="font-semibold mb-1">Arena deck format:</p>
+            <p>4 Lightning Bolt (LEB) 163</p>
+            <p>4 Monastery Swiftspear (BRO) 144</p>
+          </div>
 
-        <button
-          type="submit"
-          disabled={importMutation.isPending || !arenaExport.trim()}
-          className="mt-4 w-full py-2 px-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {importMutation.isPending ? 'Importing...' : 'Import Collection'}
-        </button>
-      </form>
+          {deckTexts.map((text, index) => (
+            <div key={index} className="mb-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-medium text-gray-600">
+                  Deck {index + 1}
+                </label>
+                {deckTexts.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeDeck(index)}
+                    className="text-sm text-red-600 hover:text-red-500"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <textarea
+                value={text}
+                onChange={(e) => updateDeck(index, e.target.value)}
+                placeholder="Paste deck export here..."
+                className="w-full h-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
+                disabled={importMutation.isPending}
+              />
+            </div>
+          ))}
+
+          <button
+            type="button"
+            onClick={addDeckField}
+            className="mb-4 text-sm text-indigo-600 hover:text-indigo-500 font-medium"
+          >
+            + Add Another Deck
+          </button>
+
+          {importMutation.isError && (
+            <p className="mt-2 text-sm text-red-600">
+              Failed to import decks. Please check the format and try again.
+            </p>
+          )}
+
+          {importMutation.isSuccess && (
+            <p className="mt-2 text-sm text-green-600">
+              Decks imported successfully!
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={
+              importMutation.isPending ||
+              !deckTexts.some((t) => t.trim())
+            }
+            className="mt-2 w-full py-2 px-4 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {importMutation.isPending ? 'Importing...' : 'Import Decks'}
+          </button>
+        </form>
+      )}
     </div>
   )
 }

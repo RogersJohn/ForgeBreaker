@@ -6,6 +6,14 @@ from forgebreaker.parsers.arena_export import (
     parse_arena_export,
     parse_arena_to_collection,
 )
+from forgebreaker.parsers.collection_import import (
+    detect_format,
+    merge_collections,
+    parse_collection_text,
+    parse_csv_format,
+    parse_multiple_decks,
+    parse_simple_format,
+)
 
 
 class TestParseArenaExport:
@@ -131,3 +139,158 @@ class TestParseArenaToCollection:
 
         assert collection.owns("Lightning Bolt", 4)
         assert collection.owns("Mountain", 4)
+
+
+class TestParseSimpleFormat:
+    def test_basic_format(self) -> None:
+        text = "4 Lightning Bolt"
+        result = parse_simple_format(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_format_with_x(self) -> None:
+        text = "4x Lightning Bolt"
+        result = parse_simple_format(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_format_with_uppercase_x(self) -> None:
+        text = "4X Lightning Bolt"
+        result = parse_simple_format(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_multiple_cards(self) -> None:
+        text = """4 Lightning Bolt
+2x Monastery Swiftspear
+20 Mountain"""
+        result = parse_simple_format(text)
+
+        assert result == {
+            "Lightning Bolt": 4,
+            "Monastery Swiftspear": 2,
+            "Mountain": 20,
+        }
+
+    def test_aggregates_duplicates(self) -> None:
+        text = """4 Lightning Bolt
+2 Lightning Bolt"""
+        result = parse_simple_format(text)
+
+        assert result == {"Lightning Bolt": 6}
+
+    def test_empty_input(self) -> None:
+        assert parse_simple_format("") == {}
+        assert parse_simple_format("   ") == {}
+
+
+class TestParseCsvFormat:
+    def test_basic_csv(self) -> None:
+        text = """Card Name,Quantity,Set
+Lightning Bolt,4,LEB
+Mountain,20,NEO"""
+        result = parse_csv_format(text)
+
+        assert result == {"Lightning Bolt": 4, "Mountain": 20}
+
+    def test_csv_with_different_column_names(self) -> None:
+        text = """Name,Count
+Lightning Bolt,4"""
+        result = parse_csv_format(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_csv_defaults_quantity_to_1(self) -> None:
+        text = """Card Name
+Lightning Bolt
+Mountain"""
+        result = parse_csv_format(text)
+
+        assert result == {"Lightning Bolt": 1, "Mountain": 1}
+
+    def test_csv_empty_input(self) -> None:
+        assert parse_csv_format("") == {}
+
+
+class TestDetectFormat:
+    def test_detects_csv(self) -> None:
+        text = """Card Name,Quantity,Set
+Lightning Bolt,4,LEB"""
+        assert detect_format(text) == "csv"
+
+    def test_detects_arena(self) -> None:
+        text = "4 Lightning Bolt (LEB) 163"
+        assert detect_format(text) == "arena"
+
+    def test_defaults_to_simple(self) -> None:
+        text = "4 Lightning Bolt"
+        assert detect_format(text) == "simple"
+
+    def test_empty_defaults_to_simple(self) -> None:
+        assert detect_format("") == "simple"
+
+
+class TestParseCollectionText:
+    def test_auto_detect_simple(self) -> None:
+        text = "4 Lightning Bolt"
+        result = parse_collection_text(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_auto_detect_csv(self) -> None:
+        text = """Card Name,Quantity
+Lightning Bolt,4"""
+        result = parse_collection_text(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_auto_detect_arena(self) -> None:
+        text = "4 Lightning Bolt (LEB) 163"
+        result = parse_collection_text(text)
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_explicit_format_hint(self) -> None:
+        text = "4 Lightning Bolt"
+        result = parse_collection_text(text, format_hint="simple")
+
+        assert result == {"Lightning Bolt": 4}
+
+    def test_empty_returns_empty(self) -> None:
+        assert parse_collection_text("") == {}
+        assert parse_collection_text("   ") == {}
+
+
+class TestMergeCollections:
+    def test_merge_keeps_max(self) -> None:
+        base = {"Lightning Bolt": 2, "Mountain": 10}
+        new = {"Lightning Bolt": 4, "Forest": 5}
+        result = merge_collections(base, new)
+
+        assert result == {
+            "Lightning Bolt": 4,
+            "Mountain": 10,
+            "Forest": 5,
+        }
+
+    def test_merge_with_empty_base(self) -> None:
+        result = merge_collections({}, {"Lightning Bolt": 4})
+
+        assert result == {"Lightning Bolt": 4}
+
+
+class TestParseMultipleDecks:
+    def test_merge_decks(self) -> None:
+        deck1 = "4 Lightning Bolt\n2 Mountain"
+        deck2 = "2 Lightning Bolt\n4 Forest"
+        result = parse_multiple_decks([deck1, deck2])
+
+        # Should keep max quantities
+        assert result.get_quantity("Lightning Bolt") == 4
+        assert result.get_quantity("Mountain") == 2
+        assert result.get_quantity("Forest") == 4
+
+    def test_skips_empty_decks(self) -> None:
+        result = parse_multiple_decks(["4 Lightning Bolt", "", "   "])
+
+        assert result.get_quantity("Lightning Bolt") == 4
