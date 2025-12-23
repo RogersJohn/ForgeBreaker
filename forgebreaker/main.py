@@ -1,3 +1,5 @@
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from importlib.metadata import version as pkg_version
 
 from fastapi import FastAPI
@@ -11,10 +13,20 @@ from forgebreaker.api import (
     health_router,
 )
 from forgebreaker.config import settings
+from forgebreaker.db.database import init_db
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncGenerator[None, None]:
+    """Application lifespan handler for startup/shutdown."""
+    await init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
     version=pkg_version("forgebreaker"),
+    lifespan=lifespan,
 )
 
 app.include_router(chat_router)
