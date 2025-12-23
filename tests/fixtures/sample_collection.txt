@@ -1,0 +1,10 @@
+Deck
+4 Lightning Bolt (LEB) 163
+4 Monastery Swiftspear (BRO) 144
+2 Sheoldred, the Apocalypse (DMU) 107
+4 Fire // Ice (MH2) 290
+20 Mountain (NEO) 290
+
+Sideboard
+2 Abrade (VOW) 139
+3 Roiling Vortex (ZNR) 156
