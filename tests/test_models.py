@@ -2,7 +2,7 @@ import pytest
 
 from forgebreaker.models.card import Card
 from forgebreaker.models.collection import Collection
-from forgebreaker.models.deck import DeckDistance, MetaDeck, WildcardCost
+from forgebreaker.models.deck import DeckDistance, MetaDeck, RankedDeck, WildcardCost
 
 
 class TestCard:
@@ -109,7 +109,36 @@ class TestDeckDistance:
             owned_cards=56,
             missing_cards=4,
             completion_percentage=0.93,
-            wildcard_cost=WildcardCost(rare=4),
+            wildcard_cost=WildcardCost(mythic=4),
             missing_card_list=[("Sheoldred", 4, "mythic")],
         )
         assert incomplete.is_complete is False
+
+
+class TestRankedDeck:
+    def test_ranked_deck_creation(self) -> None:
+        deck = MetaDeck(name="Test", archetype="aggro", format="standard")
+        distance = DeckDistance(
+            deck=deck,
+            owned_cards=56,
+            missing_cards=4,
+            completion_percentage=0.93,
+            wildcard_cost=WildcardCost(mythic=4),
+            missing_card_list=[("Sheoldred", 4, "mythic")],
+        )
+
+        ranked = RankedDeck(
+            deck=deck,
+            distance=distance,
+            score=0.85,
+            can_build_now=False,
+            within_budget=True,
+            recommendation_reason="High win rate with low wildcard cost",
+        )
+
+        assert ranked.deck == deck
+        assert ranked.distance == distance
+        assert ranked.score == 0.85
+        assert ranked.can_build_now is False
+        assert ranked.within_budget is True
+        assert ranked.recommendation_reason == "High win rate with low wildcard cost"
