@@ -3,12 +3,15 @@ from importlib.metadata import version as pkg_version
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from forgebreaker.api import collection_router
 from forgebreaker.config import settings
 
 app = FastAPI(
     title=settings.app_name,
     version=pkg_version("forgebreaker"),
 )
+
+app.include_router(collection_router)
 
 app.add_middleware(
     CORSMiddleware,
