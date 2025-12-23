@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { DeckResponse } from './api/client'
 import { apiClient } from './api/client'
+import { ChatAdvisor } from './components/ChatAdvisor'
 import { CollectionImporter } from './components/CollectionImporter'
 import { DeckBrowser } from './components/DeckBrowser'
 import { DeckDetail } from './components/DeckDetail'
@@ -107,15 +108,7 @@ function App() {
               <div className="space-y-6">
                 <CollectionImporter userId={userId} />
 
-                <div className="bg-white rounded-lg shadow p-6">
-                  <h3 className="text-lg font-medium text-gray-900">
-                    Chat Advisor
-                  </h3>
-                  <p className="text-gray-500 mt-2">
-                    Get AI-powered advice on deck building and card choices.
-                  </p>
-                  <p className="text-sm text-gray-400 mt-4">Coming soon...</p>
-                </div>
+                <ChatAdvisor userId={userId} />
               </div>
 
               <div className="xl:col-span-2">
