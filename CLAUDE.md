@@ -228,7 +228,7 @@ Scope: models, parser, api, frontend, ml, db
 
 <!-- Updated after each PR -->
 
-Last PR Merged: None
-Current PR: #1 project-setup
-Next PR: #2 models-core
+Last PR Merged: #5 analysis-distance
+Current PR: #6 analysis-ranker
+Next PR: #7 scraper-mtggoldfish
 Blockers: None
