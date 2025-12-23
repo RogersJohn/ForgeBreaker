@@ -228,7 +228,7 @@ Scope: models, parser, api, frontend, ml, db
 
 <!-- Updated after each PR -->
 
-Last PR Merged: #17 api-chat
-Current PR: #18 frontend-setup
-Next PR: #19 frontend-collection
+Last PR Merged: #18 frontend-setup
+Current PR: #19 frontend-collection
+Next PR: #20 frontend-deck-browser
 Blockers: None
