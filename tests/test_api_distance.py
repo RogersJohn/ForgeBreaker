@@ -193,10 +193,12 @@ class TestDistanceCompleteCollection:
             await update_collection_cards(session, "complete_user", collection_cards)
             await session.commit()
 
+        return {"deck": deck, "collection_cards": collection_cards}
+
     async def test_complete_collection(
         self,
         client: AsyncClient,
-        complete_collection_db: None,  # noqa: ARG002
+        complete_collection_db: dict,  # noqa: ARG002
     ) -> None:
         """Returns is_complete=True when user has all cards."""
         response = await client.get("/distance/complete_user/standard/Simple Deck")
