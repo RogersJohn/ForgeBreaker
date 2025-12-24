@@ -16,6 +16,11 @@ from forgebreaker.services.deck_builder import (
     export_deck_to_arena,
     format_built_deck,
 )
+from forgebreaker.services.synergy_finder import (
+    SynergyResult,
+    find_synergies,
+    format_synergy_results,
+)
 
 __all__ = [
     "CardSearchResult",
@@ -26,4 +31,7 @@ __all__ = [
     "build_deck",
     "export_deck_to_arena",
     "format_built_deck",
+    "SynergyResult",
+    "find_synergies",
+    "format_synergy_results",
 ]

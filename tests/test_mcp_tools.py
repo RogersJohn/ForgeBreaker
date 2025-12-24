@@ -81,7 +81,7 @@ class TestToolDefinitions:
 
     def test_tool_count(self) -> None:
         """Expected number of tools are defined."""
-        assert len(TOOL_DEFINITIONS) == 6
+        assert len(TOOL_DEFINITIONS) == 7
 
     def test_tool_names(self) -> None:
         """Expected tools are defined."""
@@ -92,6 +92,7 @@ class TestToolDefinitions:
         assert "list_meta_decks" in names
         assert "search_collection" in names
         assert "build_deck" in names
+        assert "find_synergies" in names
 
 
 class TestGetDeckRecommendations:
