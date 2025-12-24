@@ -132,9 +132,7 @@ def build_deck(
         ]
 
         if not theme_cards:
-            warnings.append(
-                f"No theme cards match color restriction {request.colors}"
-            )
+            warnings.append(f"No theme cards match color restriction {request.colors}")
 
     if not deck_colors:
         deck_colors = {"C"}  # Colorless
