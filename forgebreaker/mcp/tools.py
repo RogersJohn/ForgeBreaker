@@ -29,6 +29,10 @@ from forgebreaker.services.deck_builder import (
     build_deck,
     format_built_deck,
 )
+from forgebreaker.services.synergy_finder import (
+    find_synergies,
+    format_synergy_results,
+)
 
 
 @dataclass
@@ -219,6 +223,33 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["user_id", "theme"],
+        },
+    ),
+    ToolDefinition(
+        name="find_synergies",
+        description=(
+            "Find cards in the user's collection that synergize with a specific card. "
+            "Use when the user asks 'what cards work well with X?' or 'find synergies for X'. "
+            "Returns cards that share mechanical synergies like sacrifice, graveyard, tokens, etc."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID",
+                },
+                "card_name": {
+                    "type": "string",
+                    "description": "The card to find synergies for",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum number of synergistic cards to return",
+                    "default": 20,
+                },
+            },
+            "required": ["user_id", "card_name"],
         },
     ),
 ]
@@ -524,6 +555,59 @@ async def build_deck_tool(
     }
 
 
+async def find_synergies_tool(
+    session: AsyncSession,
+    user_id: str,
+    card_name: str,
+    card_db: dict[str, dict[str, Any]],
+    max_results: int = 20,
+) -> dict[str, Any]:
+    """
+    Find cards that synergize with a specific card.
+
+    Args:
+        session: Database session
+        user_id: User's ID
+        card_name: Card to find synergies for
+        card_db: Card database from Scryfall
+        max_results: Maximum synergistic cards to return
+
+    Returns:
+        Dict with synergy results
+    """
+    db_collection = await get_collection(session, user_id)
+
+    if db_collection is None:
+        return {
+            "found": False,
+            "message": "No collection found. Import your collection first.",
+        }
+
+    collection = collection_to_model(db_collection)
+
+    result = find_synergies(card_name, collection, card_db, max_results)
+
+    if result is None:
+        return {
+            "found": False,
+            "message": f"Card '{card_name}' not found in database.",
+        }
+
+    formatted = format_synergy_results(result)
+
+    return {
+        "found": True,
+        "source_card": result.source_card,
+        "synergy_type": result.synergy_type,
+        "synergistic_cards": [
+            {"name": name, "quantity": qty, "reason": reason}
+            for name, qty, reason in result.synergistic_cards
+        ],
+        "count": len(result.synergistic_cards),
+        "formatted": formatted,
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -595,6 +679,16 @@ async def execute_tool(
             colors=arguments.get("colors"),
             format_name=arguments.get("format", "standard"),
             include_cards=arguments.get("include_cards"),
+        )
+    elif tool_name == "find_synergies":
+        # TODO: Load card_db from Scryfall data
+        synergy_card_db: dict[str, dict[str, Any]] = {}
+        return await find_synergies_tool(
+            session,
+            user_id=arguments["user_id"],
+            card_name=arguments["card_name"],
+            card_db=synergy_card_db,
+            max_results=arguments.get("max_results", 20),
         )
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
