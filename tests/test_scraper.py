@@ -5,7 +5,7 @@ import pytest
 from forgebreaker.scrapers.mtggoldfish import (
     DeckSummary,
     _infer_archetype,
-    parse_deck_page,
+    parse_deck_download,
     parse_metagame_page,
 )
 
@@ -17,8 +17,8 @@ def metagame_html() -> str:
 
 
 @pytest.fixture
-def deck_html() -> str:
-    fixture_path = Path(__file__).parent / "fixtures" / "mtggoldfish_deck.html"
+def deck_text() -> str:
+    fixture_path = Path(__file__).parent / "fixtures" / "mtggoldfish_deck.txt"
     return fixture_path.read_text()
 
 
@@ -27,6 +27,7 @@ def sample_summary() -> DeckSummary:
     return DeckSummary(
         name="Mono Red Aggro",
         url="https://www.mtggoldfish.com/archetype/mono-red-aggro",
+        deck_id="12345",
         meta_share=0.125,
         format="standard",
     )
@@ -79,43 +80,42 @@ class TestParseMetagamePage:
         assert summaries == []
 
 
-class TestParseDeckPage:
-    def test_parses_main_deck(self, deck_html: str, sample_summary: DeckSummary) -> None:
-        """Main deck cards are correctly parsed."""
-        deck = parse_deck_page(deck_html, sample_summary)
+class TestParseDeckDownload:
+    def test_parses_main_deck(self, deck_text: str, sample_summary: DeckSummary) -> None:
+        """Main deck cards are correctly parsed from text format."""
+        deck = parse_deck_download(deck_text, sample_summary)
 
         assert deck.cards["Monastery Swiftspear"] == 4
         assert deck.cards["Lightning Bolt"] == 4
         assert deck.cards["Mountain"] == 20
 
-    def test_parses_sideboard(self, deck_html: str, sample_summary: DeckSummary) -> None:
-        """Sideboard cards are correctly parsed."""
-        deck = parse_deck_page(deck_html, sample_summary)
+    def test_parses_sideboard(self, deck_text: str, sample_summary: DeckSummary) -> None:
+        """Sideboard cards are correctly parsed from text format."""
+        deck = parse_deck_download(deck_text, sample_summary)
 
         assert deck.sideboard["Smash to Smithereens"] == 3
         assert deck.sideboard["Roiling Vortex"] == 2
 
-    def test_includes_metadata(self, deck_html: str, sample_summary: DeckSummary) -> None:
+    def test_includes_metadata(self, deck_text: str, sample_summary: DeckSummary) -> None:
         """Deck includes metadata from summary."""
-        deck = parse_deck_page(deck_html, sample_summary)
+        deck = parse_deck_download(deck_text, sample_summary)
 
         assert deck.name == "Mono Red Aggro"
         assert deck.format == "standard"
         assert deck.meta_share == 0.125
         assert deck.source_url == sample_summary.url
 
-    def test_infers_archetype(self, deck_html: str, sample_summary: DeckSummary) -> None:
+    def test_infers_archetype(self, deck_text: str, sample_summary: DeckSummary) -> None:
         """Archetype is inferred from deck name."""
-        deck = parse_deck_page(deck_html, sample_summary)
+        deck = parse_deck_download(deck_text, sample_summary)
 
         assert deck.archetype == "aggro"
 
-    def test_counts_total_cards(self, deck_html: str, sample_summary: DeckSummary) -> None:
+    def test_counts_total_cards(self, deck_text: str, sample_summary: DeckSummary) -> None:
         """Total maindeck count is correct."""
-        deck = parse_deck_page(deck_html, sample_summary)
+        deck = parse_deck_download(deck_text, sample_summary)
 
         # 16 creatures + 12 instants + 20 lands = 48
-        # But our fixture has specific quantities
         assert deck.maindeck_count() == 48
 
 
