@@ -5,6 +5,7 @@ Fetches competitive deck data from MTGGoldfish metagame pages.
 Parses deck lists, win rates, and meta share percentages.
 
 Note: Web scraping is inherently fragile. Page structure may change.
+Uses download endpoint for deck lists (text format) since JS rendering is required for HTML.
 """
 
 import re
@@ -15,7 +16,7 @@ import httpx
 from forgebreaker.models.deck import MetaDeck
 
 MTGGOLDFISH_BASE = "https://www.mtggoldfish.com"
-USER_AGENT = "ForgeBreaker/1.0 (MTG Arena Collection Manager)"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 
 # Valid Arena formats on MTGGoldfish (excludes Brawl - singleton format with no sideboard)
 VALID_FORMATS = frozenset({"standard", "historic", "explorer", "timeless"})
@@ -27,6 +28,7 @@ class DeckSummary:
 
     name: str
     url: str
+    deck_id: str | None  # ID for fetching deck via download endpoint
     meta_share: float
     format: str
 
@@ -64,6 +66,9 @@ def parse_metagame_page(html: str, format_name: str) -> list[DeckSummary]:
     """
     Parse deck summaries from a metagame page.
 
+    Extracts deck names, archetype URLs, and meta shares.
+    Note: Deck IDs must be fetched from individual archetype pages.
+
     Args:
         html: Raw HTML content from metagame page
         format_name: The format being parsed
@@ -72,6 +77,7 @@ def parse_metagame_page(html: str, format_name: str) -> list[DeckSummary]:
         List of DeckSummary objects
     """
     summaries: list[DeckSummary] = []
+    seen_names: set[str] = set()  # Avoid duplicates
 
     # Pattern matches deck tiles with meta share percentage
     # Example: <a href="/archetype/mono-red-aggro#paper">Mono Red Aggro</a>
@@ -87,10 +93,18 @@ def parse_metagame_page(html: str, format_name: str) -> list[DeckSummary]:
 
     for match in deck_pattern.finditer(html):
         url_path, name, meta_pct = match.groups()
+        name = name.strip()
+
+        # Skip duplicates (same archetype can appear multiple times)
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
         summaries.append(
             DeckSummary(
-                name=name.strip(),
+                name=name,
                 url=f"{MTGGOLDFISH_BASE}{url_path}",
+                deck_id=None,  # Will be fetched from archetype page
                 meta_share=float(meta_pct) / 100.0,
                 format=format_name,
             )
@@ -99,12 +113,12 @@ def parse_metagame_page(html: str, format_name: str) -> list[DeckSummary]:
     return summaries
 
 
-def fetch_deck_page(url: str, client: httpx.Client | None = None) -> str:
+def fetch_archetype_page(url: str, client: httpx.Client | None = None) -> str:
     """
-    Fetch a deck page HTML.
+    Fetch an archetype page HTML.
 
     Args:
-        url: Full URL to deck page
+        url: Full URL to archetype page
         client: Optional httpx client for connection reuse
 
     Returns:
@@ -119,12 +133,58 @@ def fetch_deck_page(url: str, client: httpx.Client | None = None) -> str:
     return response.text
 
 
-def parse_deck_page(html: str, summary: DeckSummary) -> MetaDeck:
+def extract_deck_id_from_archetype(html: str) -> str | None:
     """
-    Parse a full deck list from a deck page.
+    Extract the first deck ID from an archetype page.
 
     Args:
-        html: Raw HTML content from deck page
+        html: Raw HTML content from archetype page
+
+    Returns:
+        Deck ID string or None if not found
+    """
+    # Pattern to find deck IDs (e.g. /deck/7496197)
+    deck_id_pattern = re.compile(r"/deck/(\d+)")
+    match = deck_id_pattern.search(html)
+    return match.group(1) if match else None
+
+
+def fetch_deck_download(deck_id: str, client: httpx.Client | None = None) -> str:
+    """
+    Fetch deck in text format via download endpoint.
+
+    Args:
+        deck_id: The deck ID number
+        client: Optional httpx client for connection reuse
+
+    Returns:
+        Plain text deck list (simple format: qty CardName, one per line)
+    """
+    url = f"{MTGGOLDFISH_BASE}/deck/download/{deck_id}"
+
+    if client:
+        response = client.get(url)
+    else:
+        response = httpx.get(url, headers={"User-Agent": USER_AGENT}, follow_redirects=True)
+
+    response.raise_for_status()
+    return response.text
+
+
+def parse_deck_download(text: str, summary: DeckSummary) -> MetaDeck:
+    """
+    Parse a deck list from the download text format.
+
+    Format is simple: "qty CardName" per line, blank line separates sideboard.
+    Example:
+        4 Lightning Bolt
+        4 Monastery Swiftspear
+
+        2 Pyroblast
+        1 Smash to Smithereens
+
+    Args:
+        text: Plain text deck list from download endpoint
         summary: DeckSummary with metadata
 
     Returns:
@@ -133,38 +193,26 @@ def parse_deck_page(html: str, summary: DeckSummary) -> MetaDeck:
     cards: dict[str, int] = {}
     sideboard: dict[str, int] = {}
 
-    # HTML structure we're matching (simplified):
-    #   <td class="deck-col-qty">4</td>
-    #   ... (other <td> / markup) ...
-    #   <a data-card-id="12345" ...>Card Name</a>
-    #
-    # Group 1: numeric quantity from "deck-col-qty" cell
-    # Group 2: card name text inside the <a> tag
-    # DOTALL needed because content between quantity and card link spans multiple lines
-    card_pattern = re.compile(
-        r'deck-col-qty">\s*(\d+)\s*</td>\s*'  # group 1: quantity in deck-col-qty cell
-        r".*?"  # non-greedy skip over intervening HTML (other <td>, whitespace)
-        r'data-card-id="[^"]*"[^>]*>\s*'  # card link anchor with data-card-id
-        r"([^<]+?)\s*</a>",  # group 2: card name text up to closing </a>
-        re.DOTALL,
-    )
+    # Pattern: qty CardName (simple format)
+    # Matches: "4 Lightning Bolt" -> (4, Lightning Bolt)
+    card_pattern = re.compile(r"^(\d+)\s+(.+)$", re.MULTILINE)
 
-    # Find sideboard section marker (-1 if not found)
-    sideboard_marker = html.find("Sideboard")
-    main_section = html[:sideboard_marker] if sideboard_marker != -1 else html
-    side_section = html[sideboard_marker:] if sideboard_marker != -1 else ""
+    # Split by blank lines to separate main deck from sideboard
+    sections = re.split(r"\n\s*\n", text.strip())
 
-    # Parse main deck
-    for match in card_pattern.finditer(main_section):
-        qty, name = match.groups()
-        name = name.strip()
-        cards[name] = cards.get(name, 0) + int(qty)
+    # Main deck is first section
+    if sections:
+        for match in card_pattern.finditer(sections[0]):
+            qty, name = match.groups()
+            name = name.strip()
+            cards[name] = cards.get(name, 0) + int(qty)
 
-    # Parse sideboard
-    for match in card_pattern.finditer(side_section):
-        qty, name = match.groups()
-        name = name.strip()
-        sideboard[name] = sideboard.get(name, 0) + int(qty)
+    # Sideboard is second section (if exists)
+    if len(sections) > 1:
+        for match in card_pattern.finditer(sections[1]):
+            qty, name = match.groups()
+            name = name.strip()
+            sideboard[name] = sideboard.get(name, 0) + int(qty)
 
     return MetaDeck(
         name=summary.name,
@@ -199,6 +247,11 @@ def fetch_meta_decks(
     """
     Fetch top meta decks for a format.
 
+    Workflow:
+    1. Fetch metagame page for archetype list
+    2. For each archetype, fetch its page to find a sample deck ID
+    3. Download the deck in text format (avoids JS rendering)
+
     Args:
         format_name: Arena format (standard, historic, explorer, timeless)
         limit: Maximum number of decks to fetch
@@ -216,8 +269,24 @@ def fetch_meta_decks(
 
     decks: list[MetaDeck] = []
     for summary in summaries[:limit]:
-        deck_html = fetch_deck_page(summary.url, client)
-        deck = parse_deck_page(deck_html, summary)
-        decks.append(deck)
+        try:
+            # Fetch archetype page to get a deck ID
+            archetype_html = fetch_archetype_page(summary.url, client)
+            deck_id = extract_deck_id_from_archetype(archetype_html)
+
+            if not deck_id:
+                continue
+
+            # Download and parse the deck
+            deck_text = fetch_deck_download(deck_id, client)
+            deck = parse_deck_download(deck_text, summary)
+
+            # Only add if we got cards (sanity check)
+            if deck.cards:
+                decks.append(deck)
+
+        except httpx.HTTPError:
+            # Skip decks that fail to download
+            continue
 
     return decks
