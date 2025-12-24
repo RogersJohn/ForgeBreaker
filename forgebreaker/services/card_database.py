@@ -7,6 +7,7 @@ Loads and caches Scryfall card data with format legality.
 import json
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -58,7 +59,7 @@ async def download_card_database(output_path: Path | None = None) -> Path:
     return output_path
 
 
-def load_card_database(path: Path | None = None) -> dict[str, dict]:
+def load_card_database(path: Path | None = None) -> dict[str, dict[str, Any]]:
     """
     Load card database from file.
 
@@ -84,7 +85,7 @@ def load_card_database(path: Path | None = None) -> dict[str, dict]:
         cards = json.load(f)
 
     # Index by name (use first printing for each card)
-    db: dict[str, dict] = {}
+    db: dict[str, dict[str, Any]] = {}
     for card in cards:
         name = card.get("name")
         if name and name not in db:
@@ -94,7 +95,7 @@ def load_card_database(path: Path | None = None) -> dict[str, dict]:
 
 
 @lru_cache(maxsize=1)
-def get_card_database() -> dict[str, dict]:
+def get_card_database() -> dict[str, dict[str, Any]]:
     """
     Get cached card database.
 
@@ -108,7 +109,7 @@ def get_card_database() -> dict[str, dict]:
     return load_card_database()
 
 
-def get_format_legality(card_db: dict[str, dict]) -> dict[str, set[str]]:
+def get_format_legality(card_db: dict[str, dict[str, Any]]) -> dict[str, set[str]]:
     """
     Build format -> legal cards mapping.
 
@@ -141,7 +142,7 @@ def get_format_legality(card_db: dict[str, dict]) -> dict[str, set[str]]:
     return legality
 
 
-def get_card_rarity(card_name: str, card_db: dict[str, dict]) -> str:
+def get_card_rarity(card_name: str, card_db: dict[str, dict[str, Any]]) -> str:
     """
     Get rarity for a card.
 
@@ -155,11 +156,12 @@ def get_card_rarity(card_name: str, card_db: dict[str, dict]) -> str:
     """
     card = card_db.get(card_name)
     if card:
-        return card.get("rarity", "rare")
+        rarity: str = card.get("rarity", "rare")
+        return rarity
     return "rare"
 
 
-def get_card_colors(card_name: str, card_db: dict[str, dict]) -> list[str]:
+def get_card_colors(card_name: str, card_db: dict[str, dict[str, Any]]) -> list[str]:
     """
     Get colors for a card.
 
@@ -173,11 +175,12 @@ def get_card_colors(card_name: str, card_db: dict[str, dict]) -> list[str]:
     """
     card = card_db.get(card_name)
     if card:
-        return card.get("colors", [])
+        colors: list[str] = card.get("colors", [])
+        return colors
     return []
 
 
-def get_card_type(card_name: str, card_db: dict[str, dict]) -> str:
+def get_card_type(card_name: str, card_db: dict[str, dict[str, Any]]) -> str:
     """
     Get type line for a card.
 
@@ -191,5 +194,6 @@ def get_card_type(card_name: str, card_db: dict[str, dict]) -> str:
     """
     card = card_db.get(card_name)
     if card:
-        return card.get("type_line", "")
+        type_line: str = card.get("type_line", "")
+        return type_line
     return ""
