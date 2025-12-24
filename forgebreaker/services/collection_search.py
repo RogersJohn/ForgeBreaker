@@ -82,7 +82,7 @@ def search_collection(
         if colors:
             card_colors = set(card_data.get("colors", []))
             filter_colors = {c.upper() for c in colors}
-            # Card must have at least one matching color (or be colorless if [] passed)
+            # Card must have at least one matching color from the filter
             if filter_colors and not card_colors.intersection(filter_colors):
                 continue
 
@@ -107,13 +107,10 @@ def search_collection(
             )
         )
 
-        if len(results) >= max_results:
-            break
-
-    # Sort by quantity descending, then name
+    # Sort by quantity descending, then name, then truncate to max_results
     results.sort(key=lambda x: (-x.quantity, x.name))
 
-    return results
+    return results[:max_results]
 
 
 def format_search_results(results: list[CardSearchResult]) -> str:
@@ -125,7 +122,7 @@ def format_search_results(results: list[CardSearchResult]) -> str:
     if not results:
         return "No cards found matching your criteria."
 
-    lines = [f"Found {len(results)} cards:\n"]
+    lines = [f"Found {len(results)} {'card' if len(results) == 1 else 'cards'}:\n"]
 
     for card in results:
         colors_str = "".join(card.colors) if card.colors else "C"

@@ -185,7 +185,7 @@ class TestFormatSearchResults:
         ]
 
         formatted = format_search_results(results)
-        assert "Found 1 cards" in formatted
+        assert "Found 1 card" in formatted
         assert "4x Lightning Bolt" in formatted
         assert "(R)" in formatted  # Color
 
