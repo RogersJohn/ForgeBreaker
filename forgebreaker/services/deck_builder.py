@@ -9,6 +9,23 @@ from typing import Any
 
 from forgebreaker.models.collection import Collection
 
+# Color mappings used throughout deck building
+COLOR_TO_BASIC_LAND = {
+    "W": "Plains",
+    "U": "Island",
+    "B": "Swamp",
+    "R": "Mountain",
+    "G": "Forest",
+}
+
+COLOR_TO_WORD = {
+    "W": "white",
+    "U": "blue",
+    "B": "black",
+    "R": "red",
+    "G": "green",
+}
+
 
 @dataclass
 class BuiltDeck:
@@ -104,7 +121,20 @@ def build_deck(
         deck_colors.update(card_data.get("colors", []))
 
     if request.colors:
-        deck_colors = deck_colors.intersection({c.upper() for c in request.colors})
+        requested_colors = {c.upper() for c in request.colors}
+        deck_colors = deck_colors.intersection(requested_colors)
+
+        # Filter theme cards to only those matching color restriction
+        theme_cards = [
+            (name, qty, data)
+            for name, qty, data in theme_cards
+            if not data.get("colors") or set(data.get("colors", [])).issubset(requested_colors)
+        ]
+
+        if not theme_cards:
+            warnings.append(
+                f"No theme cards match color restriction {request.colors}"
+            )
 
     if not deck_colors:
         deck_colors = {"C"}  # Colorless
@@ -270,15 +300,6 @@ def _build_mana_base(
     lands: dict[str, int] = {}
     added = 0
 
-    # Map colors to basic land types
-    color_to_basic = {
-        "W": "Plains",
-        "U": "Island",
-        "B": "Swamp",
-        "R": "Mountain",
-        "G": "Forest",
-    }
-
     # First, add dual/utility lands
     for card_name, qty in collection.cards.items():
         if added >= land_count:
@@ -303,13 +324,7 @@ def _build_mana_base(
         produces_needed = False
 
         for color in colors:
-            color_word = {
-                "W": "white",
-                "U": "blue",
-                "B": "black",
-                "R": "red",
-                "G": "green",
-            }.get(color, "")
+            color_word = COLOR_TO_WORD.get(color, "")
             if color_word and color_word in oracle:
                 produces_needed = True
                 break
@@ -319,7 +334,7 @@ def _build_mana_base(
             lands[card_name] = add_qty
             added += add_qty
 
-    # Fill rest with basics
+    # Fill rest with basics (only use what the user owns)
     if added < land_count and colors:
         basics_needed = land_count - added
         colors_list = sorted(colors - {"C"})
@@ -329,12 +344,15 @@ def _build_mana_base(
             remainder = basics_needed % len(colors_list)
 
             for i, color in enumerate(colors_list):
-                basic_name = color_to_basic.get(color)
+                basic_name = COLOR_TO_BASIC_LAND.get(color)
                 if basic_name:
-                    count = per_color + (1 if i < remainder else 0)
-                    if count > 0:
-                        lands[basic_name] = count
-                        added += count
+                    desired = per_color + (1 if i < remainder else 0)
+                    # Only add basics the user actually owns
+                    owned = collection.cards.get(basic_name, 0)
+                    add_qty = min(desired, owned, land_count - added)
+                    if add_qty > 0:
+                        lands[basic_name] = add_qty
+                        added += add_qty
 
     return lands
 
@@ -388,10 +406,10 @@ def export_deck_to_arena(deck: BuiltDeck, card_db: dict[str, dict[str, Any]]) ->
     """Export deck to Arena import format."""
     lines = ["Deck"]
 
-    # Non-land cards
+    # Non-land cards (default to FDN set if unknown)
     for card_name, qty in sorted(deck.cards.items()):
         card_data = card_db.get(card_name, {})
-        set_code = card_data.get("set", "").upper()
+        set_code = card_data.get("set", "FDN").upper()
         collector_num = card_data.get("collector_number", "1")
         lines.append(f"{qty} {card_name} ({set_code}) {collector_num}")
 
