@@ -141,7 +141,7 @@ class TestToolConversion:
 
         tools = _get_anthropic_tools()
 
-        assert len(tools) == 7
+        assert len(tools) == 8
         for tool in tools:
             assert "name" in tool
             assert "description" in tool

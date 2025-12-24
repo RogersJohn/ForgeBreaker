@@ -25,8 +25,10 @@ from forgebreaker.services.collection_search import (
     search_collection,
 )
 from forgebreaker.services.deck_builder import (
+    BuiltDeck,
     DeckBuildRequest,
     build_deck,
+    export_deck_to_arena,
     format_built_deck,
 )
 from forgebreaker.services.synergy_finder import (
@@ -250,6 +252,39 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["user_id", "card_name"],
+        },
+    ),
+    ToolDefinition(
+        name="export_to_arena",
+        description=(
+            "Convert a deck to MTG Arena import format. "
+            "Use this AFTER building a deck with build_deck. "
+            "Returns text that can be copy-pasted directly into Arena's import function."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "cards": {
+                    "type": "object",
+                    "description": (
+                        "The deck's non-land cards as {card_name: quantity}. "
+                        "Get this from the 'cards' field of a build_deck response."
+                    ),
+                },
+                "lands": {
+                    "type": "object",
+                    "description": (
+                        "The deck's lands as {land_name: quantity}. "
+                        "Get this from the 'lands' field of a build_deck response."
+                    ),
+                },
+                "deck_name": {
+                    "type": "string",
+                    "description": "Name for the deck (optional)",
+                    "default": "Deck",
+                },
+            },
+            "required": ["cards", "lands"],
         },
     ),
 ]
@@ -608,6 +643,45 @@ async def find_synergies_tool(
     }
 
 
+def export_to_arena_tool(
+    cards: dict[str, int],
+    lands: dict[str, int],
+    card_db: dict[str, dict[str, Any]],
+    deck_name: str = "Deck",
+) -> dict[str, Any]:
+    """
+    Export a deck to MTG Arena import format.
+
+    Args:
+        cards: Non-land cards {name: quantity}
+        lands: Land cards {name: quantity}
+        card_db: Card database from Scryfall
+        deck_name: Name for the deck
+
+    Returns:
+        Dict with arena_format export string
+    """
+    # Create a minimal BuiltDeck for export
+    deck = BuiltDeck(
+        name=deck_name,
+        cards=cards,
+        total_cards=sum(cards.values()) + sum(lands.values()),
+        colors=set(),
+        theme_cards=[],
+        support_cards=[],
+        lands=lands,
+    )
+
+    arena_export = export_deck_to_arena(deck, card_db)
+
+    return {
+        "success": True,
+        "deck_name": deck_name,
+        "total_cards": deck.total_cards,
+        "arena_format": arena_export,
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -689,6 +763,15 @@ async def execute_tool(
             card_name=arguments["card_name"],
             card_db=synergy_card_db,
             max_results=arguments.get("max_results", 20),
+        )
+    elif tool_name == "export_to_arena":
+        # TODO: Load card_db from Scryfall data
+        export_card_db: dict[str, dict[str, Any]] = {}
+        return export_to_arena_tool(
+            cards=arguments["cards"],
+            lands=arguments["lands"],
+            card_db=export_card_db,
+            deck_name=arguments.get("deck_name", "Deck"),
         )
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
