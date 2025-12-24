@@ -11,8 +11,6 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
-
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.analysis.ranker import rank_decks
 from forgebreaker.db import (
@@ -43,6 +41,7 @@ from forgebreaker.services.synergy_finder import (
     format_synergy_results,
 )
 
+logger = logging.getLogger(__name__)
 
 # Cached card database and format legality (loaded once)
 _card_db_cache: dict[str, dict[str, Any]] | None = None
