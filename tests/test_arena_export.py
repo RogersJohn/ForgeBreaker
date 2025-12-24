@@ -45,7 +45,7 @@ def card_db() -> dict[str, dict[str, Any]]:
 class TestExportToArenaTool:
     """Tests for export_to_arena_tool function."""
 
-    def test_export_basic_deck(
+    async def test_export_basic_deck(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -53,13 +53,13 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4, "Sanctum of Stone Fangs": 4}
         lands = {"Mountain": 12, "Swamp": 12}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         assert result["success"] is True
         assert result["total_cards"] == 32
         assert "arena_format" in result
 
-    def test_export_starts_with_deck(
+    async def test_export_starts_with_deck(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -67,11 +67,11 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4}
         lands = {"Mountain": 20}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         assert result["arena_format"].startswith("Deck")
 
-    def test_export_includes_set_codes(
+    async def test_export_includes_set_codes(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -79,12 +79,12 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4}
         lands = {"Mountain": 20}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         assert "(STA)" in result["arena_format"]
         assert "(FDN)" in result["arena_format"]
 
-    def test_export_includes_collector_numbers(
+    async def test_export_includes_collector_numbers(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -92,12 +92,12 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4}
         lands = {}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         # Lightning Bolt is (STA) 42
         assert "42" in result["arena_format"]
 
-    def test_export_format_line_structure(
+    async def test_export_format_line_structure(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -105,7 +105,7 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4}
         lands = {}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         lines = result["arena_format"].split("\n")
         # First line is "Deck"
@@ -113,7 +113,7 @@ class TestExportToArenaTool:
         # Second line should be the card
         assert "4 Lightning Bolt (STA) 42" in lines[1]
 
-    def test_export_custom_deck_name(
+    async def test_export_custom_deck_name(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -121,11 +121,11 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4}
         lands = {}
 
-        result = export_to_arena_tool(cards, lands, card_db, deck_name="My Deck")
+        result = await export_to_arena_tool(cards, lands, card_db, deck_name="My Deck")
 
         assert result["deck_name"] == "My Deck"
 
-    def test_export_empty_deck(
+    async def test_export_empty_deck(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -133,25 +133,25 @@ class TestExportToArenaTool:
         cards: dict[str, int] = {}
         lands: dict[str, int] = {}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         assert result["success"] is True
         assert result["total_cards"] == 0
         assert result["arena_format"] == "Deck"
 
-    def test_export_unknown_cards_use_defaults(self) -> None:
+    async def test_export_unknown_cards_use_defaults(self) -> None:
         """Cards not in database use default set code."""
         card_db: dict[str, dict[str, Any]] = {}
         cards = {"Unknown Card": 4}
         lands = {}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         assert result["success"] is True
         # Should still produce output with default set
         assert "Unknown Card" in result["arena_format"]
 
-    def test_export_includes_all_cards(
+    async def test_export_includes_all_cards(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
@@ -159,7 +159,7 @@ class TestExportToArenaTool:
         cards = {"Lightning Bolt": 4, "Sanctum of Stone Fangs": 4}
         lands = {"Mountain": 12, "Swamp": 12}
 
-        result = export_to_arena_tool(cards, lands, card_db)
+        result = await export_to_arena_tool(cards, lands, card_db)
 
         arena_format = result["arena_format"]
         assert "Lightning Bolt" in arena_format

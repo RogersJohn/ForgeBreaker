@@ -643,7 +643,7 @@ async def find_synergies_tool(
     }
 
 
-def export_to_arena_tool(
+async def export_to_arena_tool(
     cards: dict[str, int],
     lands: dict[str, int],
     card_db: dict[str, dict[str, Any]],
@@ -765,9 +765,10 @@ async def execute_tool(
             max_results=arguments.get("max_results", 20),
         )
     elif tool_name == "export_to_arena":
-        # TODO: Load card_db from Scryfall data
+        # TODO: Load card_db from Scryfall data (card_database service)
+        # Without card_db, export uses default set codes (FDN) - same as other tools
         export_card_db: dict[str, dict[str, Any]] = {}
-        return export_to_arena_tool(
+        return await export_to_arena_tool(
             cards=arguments["cards"],
             lands=arguments["lands"],
             card_db=export_card_db,
