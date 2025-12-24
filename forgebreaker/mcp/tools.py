@@ -348,7 +348,7 @@ async def list_meta_decks(
 async def search_collection_tool(
     session: AsyncSession,
     user_id: str,
-    card_db: dict[str, dict],
+    card_db: dict[str, dict[str, Any]],
     name_contains: str | None = None,
     card_type: str | None = None,
     colors: list[str] | None = None,
@@ -459,7 +459,7 @@ async def execute_tool(
         )
     elif tool_name == "search_collection":
         # TODO: Load card_db from Scryfall data (PR #42)
-        card_db: dict[str, dict] = {}
+        card_db: dict[str, dict[str, Any]] = {}
         return await search_collection_tool(
             session,
             user_id=arguments["user_id"],

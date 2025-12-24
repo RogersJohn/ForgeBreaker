@@ -5,6 +5,7 @@ Provides filtered search over a user's card collection.
 """
 
 from dataclasses import dataclass
+from typing import Any
 
 from forgebreaker.models.collection import Collection
 
@@ -24,7 +25,7 @@ class CardSearchResult:
 
 def search_collection(
     collection: Collection,
-    card_db: dict[str, dict],
+    card_db: dict[str, dict[str, Any]],
     name_contains: str | None = None,
     card_type: str | None = None,
     colors: list[str] | None = None,
