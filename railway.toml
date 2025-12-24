@@ -2,8 +2,8 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "uvicorn forgebreaker.main:app --host 0.0.0.0 --port $PORT"
+startCommand = "python -m forgebreaker.jobs.download_cards && uvicorn forgebreaker.main:app --host 0.0.0.0 --port $PORT"
 healthcheckPath = "/health"
-healthcheckTimeout = 30
+healthcheckTimeout = 120
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3

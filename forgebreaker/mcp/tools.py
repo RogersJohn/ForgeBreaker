@@ -5,10 +5,13 @@ Defines tools that Claude can call to help users with deck recommendations
 and collection management.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.analysis.ranker import rank_decks
@@ -20,6 +23,10 @@ from forgebreaker.db import (
     meta_deck_to_model,
 )
 from forgebreaker.models.collection import Collection
+from forgebreaker.services.card_database import (
+    get_card_database,
+    get_format_legality,
+)
 from forgebreaker.services.collection_search import (
     format_search_results,
     search_collection,
@@ -35,6 +42,36 @@ from forgebreaker.services.synergy_finder import (
     find_synergies,
     format_synergy_results,
 )
+
+
+# Cached card database and format legality (loaded once)
+_card_db_cache: dict[str, dict[str, Any]] | None = None
+_format_legality_cache: dict[str, set[str]] | None = None
+
+
+def _get_card_db_safe() -> dict[str, dict[str, Any]]:
+    """Get card database, returning empty dict if not available."""
+    global _card_db_cache
+    if _card_db_cache is not None:
+        return _card_db_cache
+    try:
+        _card_db_cache = get_card_database()
+        return _card_db_cache
+    except FileNotFoundError:
+        logger.warning("Card database not found - tools will have limited functionality")
+        return {}
+
+
+def _get_format_legality_safe() -> dict[str, set[str]]:
+    """Get format legality, returning empty dict if not available."""
+    global _format_legality_cache
+    if _format_legality_cache is not None:
+        return _format_legality_cache
+    card_db = _get_card_db_safe()
+    if card_db:
+        _format_legality_cache = get_format_legality(card_db)
+        return _format_legality_cache
+    return {}
 
 
 @dataclass
@@ -727,8 +764,7 @@ async def execute_tool(
             limit=arguments.get("limit", 10),
         )
     elif tool_name == "search_collection":
-        # TODO: Load card_db from Scryfall data (PR #42)
-        card_db: dict[str, dict[str, Any]] = {}
+        card_db = _get_card_db_safe()
         return await search_collection_tool(
             session,
             user_id=arguments["user_id"],
@@ -741,37 +777,33 @@ async def execute_tool(
             min_quantity=arguments.get("min_quantity", 1),
         )
     elif tool_name == "build_deck":
-        # TODO: Load card_db and format_legality from Scryfall data
-        deck_card_db: dict[str, dict[str, Any]] = {}
-        format_legality: dict[str, set[str]] = {}
+        card_db = _get_card_db_safe()
+        format_legality = _get_format_legality_safe()
         return await build_deck_tool(
             session,
             user_id=arguments["user_id"],
             theme=arguments["theme"],
-            card_db=deck_card_db,
+            card_db=card_db,
             format_legality=format_legality,
             colors=arguments.get("colors"),
             format_name=arguments.get("format", "standard"),
             include_cards=arguments.get("include_cards"),
         )
     elif tool_name == "find_synergies":
-        # TODO: Load card_db from Scryfall data
-        synergy_card_db: dict[str, dict[str, Any]] = {}
+        card_db = _get_card_db_safe()
         return await find_synergies_tool(
             session,
             user_id=arguments["user_id"],
             card_name=arguments["card_name"],
-            card_db=synergy_card_db,
+            card_db=card_db,
             max_results=arguments.get("max_results", 20),
         )
     elif tool_name == "export_to_arena":
-        # TODO: Load card_db from Scryfall data (card_database service)
-        # Without card_db, export uses default set codes (FDN) - same as other tools
-        export_card_db: dict[str, dict[str, Any]] = {}
+        card_db = _get_card_db_safe()
         return await export_to_arena_tool(
             cards=arguments["cards"],
             lands=arguments["lands"],
-            card_db=export_card_db,
+            card_db=card_db,
             deck_name=arguments.get("deck_name", "Deck"),
         )
     else:
