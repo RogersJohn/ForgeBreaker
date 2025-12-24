@@ -108,6 +108,14 @@ class TestLoadCardDatabase:
         with pytest.raises(FileNotFoundError):
             load_card_database(tmp_path / "nonexistent.json")
 
+    def test_corrupted_json_raises_value_error(self, tmp_path: Path) -> None:
+        """Corrupted JSON raises ValueError with helpful message."""
+        db_path = tmp_path / "corrupted.json"
+        db_path.write_text("{ invalid json }", encoding="utf-8")
+
+        with pytest.raises(ValueError, match="corrupted"):
+            load_card_database(db_path)
+
     def test_first_printing_wins(self, tmp_path: Path) -> None:
         """First printing of a card is used if duplicates exist."""
         cards = [

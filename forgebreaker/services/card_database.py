@@ -49,12 +49,20 @@ async def download_card_database(output_path: Path | None = None) -> Path:
         if not download_url:
             raise ValueError("Could not find default_cards bulk data URL")
 
-        # Stream download (file is ~70MB)
+        # Stream download (file is ~70MB). Write to temp file first for atomicity.
+        temp_path = output_path.with_suffix(output_path.suffix + ".tmp")
         async with client.stream("GET", download_url, timeout=300.0) as response:
             response.raise_for_status()
-            with open(output_path, "wb") as f:
-                async for chunk in response.aiter_bytes(8192):
-                    f.write(chunk)
+            try:
+                with open(temp_path, "wb") as f:
+                    async for chunk in response.aiter_bytes(8192):
+                        f.write(chunk)
+                # Atomically replace target file on success
+                temp_path.replace(output_path)
+            except Exception:
+                # Clean up partial temp file on failure
+                temp_path.unlink(missing_ok=True)
+                raise
 
     return output_path
 
@@ -67,10 +75,12 @@ def load_card_database(path: Path | None = None) -> dict[str, dict[str, Any]]:
         path: Path to JSON file. Defaults to data/default-cards.json
 
     Returns:
-        Dict mapping card names to card data.
+        Dict mapping card names to card data. When duplicate card names exist
+        (reprints), only the first printing is kept.
 
     Raises:
         FileNotFoundError: If database file doesn't exist
+        ValueError: If JSON parsing fails (corrupted file)
     """
     if path is None:
         path = DATA_DIR / "default-cards.json"
@@ -82,7 +92,14 @@ def load_card_database(path: Path | None = None) -> dict[str, dict[str, Any]]:
         )
 
     with open(path, encoding="utf-8") as f:
-        cards = json.load(f)
+        try:
+            cards = json.load(f)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Failed to parse card database at {path}. "
+                "File may be corrupted; try re-downloading with "
+                "`python -m forgebreaker.jobs.download_cards`."
+            ) from exc
 
     # Index by name (use first printing for each card)
     db: dict[str, dict[str, Any]] = {}
