@@ -206,16 +206,16 @@ class TestFindSynergies:
 
     def test_type_based_synergy_fallback(
         self,
-        sacrifice_collection: Collection,
+        spells_collection: Collection,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
         """Falls back to type-based synergies when no keyword match."""
-        # Blood Artist is a creature without specific synergy keywords in oracle
-        result = find_synergies("Blood Artist", sacrifice_collection, card_db)
+        # Monastery Swiftspear has prowess but no synergy trigger keywords in oracle
+        result = find_synergies("Monastery Swiftspear", spells_collection, card_db)
 
         assert result is not None
-        # Should fall back since "dies" triggers synergy detection
-        assert len(result.synergistic_cards) >= 0
+        # Falls back to creature-type synergy since no pattern triggers matched
+        assert result.synergy_type == "creature"
 
     def test_respects_max_results(
         self,
@@ -316,7 +316,7 @@ class TestSynergyPatterns:
         result = find_synergies("Graveyard Trespasser", collection, card_db)
 
         assert result is not None
-        # The card has "graveyard" in name, should detect graveyard synergy
+        # The card's oracle text includes "graveyard", triggering graveyard synergy detection
         card_names = [name for name, _, _ in result.synergistic_cards]
         assert "Blood Artist" in card_names
 

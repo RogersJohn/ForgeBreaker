@@ -78,15 +78,16 @@ def find_synergies(
             synergy_type = trigger
 
     if not synergy_keywords:
-        # No specific synergy found, look for type-based synergies
+        # No specific synergy found, look for type-based synergies.
+        # Use only broad type keywords here; detailed mechanics are in SYNERGY_PATTERNS.
         if "creature" in type_line:
             synergy_keywords = {"creature", "tribal"}
             synergy_type = "creature"
         elif "enchantment" in type_line:
-            synergy_keywords = {"enchantment", "constellation", "aura"}
+            synergy_keywords = {"enchantment"}
             synergy_type = "enchantment"
         elif "artifact" in type_line:
-            synergy_keywords = {"artifact", "affinity", "metalcraft"}
+            synergy_keywords = {"artifact"}
             synergy_type = "artifact"
 
     # Find synergistic cards in collection
