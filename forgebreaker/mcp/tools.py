@@ -24,6 +24,11 @@ from forgebreaker.services.collection_search import (
     format_search_results,
     search_collection,
 )
+from forgebreaker.services.deck_builder import (
+    DeckBuildRequest,
+    build_deck,
+    format_built_deck,
+)
 
 
 @dataclass
@@ -169,6 +174,51 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["user_id"],
+        },
+    ),
+    ToolDefinition(
+        name="build_deck",
+        description=(
+            "Build a custom deck from the user's collection around a theme. "
+            "Use when the user asks to build a deck around a card type, creature type, "
+            "or keyword like 'build me a shrine deck' or 'make a goblin deck'. "
+            "This builds a COMPLETE 60-card deck using ONLY cards they own."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID",
+                },
+                "theme": {
+                    "type": "string",
+                    "description": (
+                        "Card name, type, or keyword to build around. "
+                        "Examples: 'Shrine', 'Goblin', 'sacrifice', 'graveyard'"
+                    ),
+                },
+                "colors": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["W", "U", "B", "R", "G"]},
+                    "description": (
+                        "Optional color restriction. "
+                        "If not specified, colors are determined from theme cards."
+                    ),
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["standard", "historic", "explorer", "timeless", "brawl"],
+                    "description": "Format for legality checking",
+                    "default": "standard",
+                },
+                "include_cards": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific cards that MUST be included in the deck",
+                },
+            },
+            "required": ["user_id", "theme"],
         },
     ),
 ]
@@ -413,6 +463,67 @@ async def search_collection_tool(
     }
 
 
+async def build_deck_tool(
+    session: AsyncSession,
+    user_id: str,
+    theme: str,
+    card_db: dict[str, dict[str, Any]],
+    format_legality: dict[str, set[str]],
+    colors: list[str] | None = None,
+    format_name: str = "standard",
+    include_cards: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Build a deck from user's collection around a theme.
+
+    Args:
+        session: Database session
+        user_id: User's ID
+        theme: Theme to build around
+        card_db: Card database from Scryfall
+        format_legality: Legal cards per format
+        colors: Optional color restriction
+        format_name: Format for legality
+        include_cards: Cards that must be included
+
+    Returns:
+        Dict with built deck information
+    """
+    db_collection = await get_collection(session, user_id)
+
+    if db_collection is None:
+        return {
+            "success": False,
+            "message": "No collection found. Import your collection first.",
+        }
+
+    collection = collection_to_model(db_collection)
+
+    request = DeckBuildRequest(
+        theme=theme,
+        colors=colors,
+        format=format_name,
+        include_cards=include_cards,
+    )
+
+    deck = build_deck(request, collection, card_db, format_legality)
+    formatted = format_built_deck(deck)
+
+    return {
+        "success": True,
+        "deck_name": deck.name,
+        "total_cards": deck.total_cards,
+        "colors": list(deck.colors),
+        "theme_cards": deck.theme_cards,
+        "support_cards": deck.support_cards,
+        "lands": deck.lands,
+        "cards": deck.cards,
+        "notes": deck.notes,
+        "warnings": deck.warnings,
+        "formatted": formatted,
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -470,6 +581,20 @@ async def execute_tool(
             set_code=arguments.get("set_code"),
             rarity=arguments.get("rarity"),
             min_quantity=arguments.get("min_quantity", 1),
+        )
+    elif tool_name == "build_deck":
+        # TODO: Load card_db and format_legality from Scryfall data
+        deck_card_db: dict[str, dict[str, Any]] = {}
+        format_legality: dict[str, set[str]] = {}
+        return await build_deck_tool(
+            session,
+            user_id=arguments["user_id"],
+            theme=arguments["theme"],
+            card_db=deck_card_db,
+            format_legality=format_legality,
+            colors=arguments.get("colors"),
+            format_name=arguments.get("format", "standard"),
+            include_cards=arguments.get("include_cards"),
         )
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
