@@ -69,13 +69,19 @@ Use when users want competitive meta decks:
 - "Show me Standard decks I'm close to"
 
 ### calculate_deck_distance
-Use for details about a specific meta deck's completion.
+Use for details about a specific meta deck's completion:
+- "How close am I to completing Mono Red Aggro?"
+- "What cards do I need for Esper Control?"
 
 ### list_meta_decks
-Use to show available meta decks for a format.
+Use to show available meta decks for a format:
+- "What are the top decks in Standard?"
+- "Show me all Historic meta decks"
 
 ### get_collection_stats
-Use to show collection overview (total cards, unique cards).
+Use to show collection overview (total cards, unique cards):
+- "How many cards do I have?"
+- "Show me my collection statistics"
 
 ## Important Guidelines
 
@@ -89,10 +95,12 @@ Use to show collection overview (total cards, unique cards).
 
 User: "Build me a shrine deck"
 
-1. Call search_collection(name_contains="shrine") to see what shrines they have
-2. Call build_deck(theme="shrine") to create the deck
-3. Show the deck with explanations
-4. Offer: "Would you like me to export this for Arena import?"
+1. Call build_deck(theme="shrine") to create the deck using only cards they own
+2. Show the deck with explanations
+3. Offer: "Would you like me to export this for Arena import?"
+
+(Optional) If the user first wants to see what shrines they own, you MAY call
+search_collection(name_contains="shrine") before building the deck.
 
 Note: All tool calls are automatically scoped to the authenticated user's data.
 You do not need to provide user_id in tool calls - it is injected by the server.
