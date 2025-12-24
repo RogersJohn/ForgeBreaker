@@ -144,7 +144,7 @@ def extract_deck_id_from_archetype(html: str) -> str | None:
         Deck ID string or None if not found
     """
     # Pattern to find deck IDs (e.g. /deck/7496197)
-    deck_id_pattern = re.compile(r'/deck/(\d+)')
+    deck_id_pattern = re.compile(r"/deck/(\d+)")
     match = deck_id_pattern.search(html)
     return match.group(1) if match else None
 
@@ -195,10 +195,10 @@ def parse_deck_download(text: str, summary: DeckSummary) -> MetaDeck:
 
     # Pattern: qty CardName (simple format)
     # Matches: "4 Lightning Bolt" -> (4, Lightning Bolt)
-    card_pattern = re.compile(r'^(\d+)\s+(.+)$', re.MULTILINE)
+    card_pattern = re.compile(r"^(\d+)\s+(.+)$", re.MULTILINE)
 
     # Split by blank lines to separate main deck from sideboard
-    sections = re.split(r'\n\s*\n', text.strip())
+    sections = re.split(r"\n\s*\n", text.strip())
 
     # Main deck is first section
     if sections:
