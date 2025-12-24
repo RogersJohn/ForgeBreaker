@@ -20,6 +20,10 @@ from forgebreaker.db import (
     meta_deck_to_model,
 )
 from forgebreaker.models.collection import Collection
+from forgebreaker.services.collection_search import (
+    format_search_results,
+    search_collection,
+)
 
 
 @dataclass
@@ -120,6 +124,51 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["format"],
+        },
+    ),
+    ToolDefinition(
+        name="search_collection",
+        description=(
+            "Search the user's card collection for cards matching specific criteria. "
+            "Use when the user asks about cards they own, like 'do I have any goblins?' "
+            "or 'show me my enchantments' or 'what shrines do I own?'"
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID",
+                },
+                "name_contains": {
+                    "type": "string",
+                    "description": "Find cards with this text in the name (case-insensitive)",
+                },
+                "card_type": {
+                    "type": "string",
+                    "description": "Filter by card type (Creature, Enchantment, Instant, etc.)",
+                },
+                "colors": {
+                    "type": "array",
+                    "items": {"type": "string", "enum": ["W", "U", "B", "R", "G"]},
+                    "description": "Filter by color (W=White, U=Blue, B=Black, R=Red, G=Green)",
+                },
+                "set_code": {
+                    "type": "string",
+                    "description": "Filter by set code (e.g., 'DMU', 'M21', 'FDN')",
+                },
+                "rarity": {
+                    "type": "string",
+                    "enum": ["common", "uncommon", "rare", "mythic"],
+                    "description": "Filter by rarity",
+                },
+                "min_quantity": {
+                    "type": "integer",
+                    "description": "Only show cards owned in at least this quantity",
+                    "default": 1,
+                },
+            },
+            "required": ["user_id"],
         },
     ),
 ]
@@ -296,6 +345,74 @@ async def list_meta_decks(
     return {"format": format_name, "decks": decks}
 
 
+async def search_collection_tool(
+    session: AsyncSession,
+    user_id: str,
+    card_db: dict[str, dict],
+    name_contains: str | None = None,
+    card_type: str | None = None,
+    colors: list[str] | None = None,
+    set_code: str | None = None,
+    rarity: str | None = None,
+    min_quantity: int = 1,
+) -> dict[str, Any]:
+    """
+    Search user's collection for cards matching criteria.
+
+    Args:
+        session: Database session
+        user_id: User's ID
+        card_db: Card database from Scryfall
+        name_contains: Filter by name substring
+        card_type: Filter by type line
+        colors: Filter by colors
+        set_code: Filter by set
+        rarity: Filter by rarity
+        min_quantity: Minimum quantity owned
+
+    Returns:
+        Dict with search results
+    """
+    db_collection = await get_collection(session, user_id)
+
+    if db_collection is None:
+        return {
+            "results": [],
+            "message": "No collection found. Import your collection first.",
+        }
+
+    collection = collection_to_model(db_collection)
+
+    results = search_collection(
+        collection=collection,
+        card_db=card_db,
+        name_contains=name_contains,
+        card_type=card_type,
+        colors=colors,
+        set_code=set_code,
+        rarity=rarity,
+        min_quantity=min_quantity,
+    )
+
+    formatted = format_search_results(results)
+
+    return {
+        "count": len(results),
+        "results": [
+            {
+                "name": r.name,
+                "quantity": r.quantity,
+                "type": r.type_line,
+                "colors": r.colors,
+                "rarity": r.rarity,
+                "set": r.set_code,
+            }
+            for r in results
+        ],
+        "formatted": formatted,
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -339,6 +456,20 @@ async def execute_tool(
             session,
             format_name=arguments["format"],
             limit=arguments.get("limit", 10),
+        )
+    elif tool_name == "search_collection":
+        # TODO: Load card_db from Scryfall data (PR #42)
+        card_db: dict[str, dict] = {}
+        return await search_collection_tool(
+            session,
+            user_id=arguments["user_id"],
+            card_db=card_db,
+            name_contains=arguments.get("name_contains"),
+            card_type=arguments.get("card_type"),
+            colors=arguments.get("colors"),
+            set_code=arguments.get("set_code"),
+            rarity=arguments.get("rarity"),
+            min_quantity=arguments.get("min_quantity", 1),
         )
     else:
         raise ValueError(f"Unknown tool: {tool_name}")
