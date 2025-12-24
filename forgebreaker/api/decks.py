@@ -12,6 +12,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from forgebreaker.db import get_meta_deck, get_meta_decks_by_format, meta_deck_to_model
 from forgebreaker.db.database import get_session
+from forgebreaker.jobs.update_meta import run_meta_update
+from forgebreaker.scrapers.mtggoldfish import VALID_FORMATS
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -35,6 +37,36 @@ class DeckListResponse(BaseModel):
     format: str
     decks: list[DeckResponse]
     count: int
+
+
+class SyncResponse(BaseModel):
+    """Response model for sync operation."""
+
+    synced: dict[str, int]
+    total: int
+
+
+@router.post("/sync", response_model=SyncResponse)
+async def sync_meta_decks(
+    formats: list[str] | None = None,
+    limit: Annotated[int, Query(ge=1, le=50)] = 15,
+) -> SyncResponse:
+    """
+    Trigger meta deck sync from MTGGoldfish.
+
+    Scrapes current meta decks and saves to database.
+    If formats is None, syncs all valid Arena formats.
+    """
+    if formats:
+        invalid = set(formats) - VALID_FORMATS
+        if invalid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid formats: {invalid}. Valid: {list(VALID_FORMATS)}",
+            )
+
+    results = await run_meta_update(formats=formats, limit=limit)
+    return SyncResponse(synced=results, total=sum(results.values()))
 
 
 @router.get("/{format_name}", response_model=DeckListResponse)
