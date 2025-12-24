@@ -9,9 +9,21 @@ from forgebreaker.services.collection_search import (
     format_search_results,
     search_collection,
 )
+from forgebreaker.services.deck_builder import (
+    BuiltDeck,
+    DeckBuildRequest,
+    build_deck,
+    export_deck_to_arena,
+    format_built_deck,
+)
 
 __all__ = [
     "CardSearchResult",
     "format_search_results",
     "search_collection",
+    "BuiltDeck",
+    "DeckBuildRequest",
+    "build_deck",
+    "export_deck_to_arena",
+    "format_built_deck",
 ]
