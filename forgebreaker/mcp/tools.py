@@ -584,13 +584,13 @@ async def execute_tool(
         )
     elif tool_name == "build_deck":
         # TODO: Load card_db and format_legality from Scryfall data
-        card_db: dict[str, dict[str, Any]] = {}
+        deck_card_db: dict[str, dict[str, Any]] = {}
         format_legality: dict[str, set[str]] = {}
         return await build_deck_tool(
             session,
             user_id=arguments["user_id"],
             theme=arguments["theme"],
-            card_db=card_db,
+            card_db=deck_card_db,
             format_legality=format_legality,
             colors=arguments.get("colors"),
             format_name=arguments.get("format", "standard"),
