@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useCollection, useImportCollection } from '../hooks/useCollection'
 
 interface CollectionImporterProps {
@@ -10,9 +10,24 @@ type Tab = 'tracker' | 'decks'
 export function CollectionImporter({ userId }: CollectionImporterProps) {
   const [activeTab, setActiveTab] = useState<Tab>('tracker')
   const [importText, setImportText] = useState('')
+  const [fileName, setFileName] = useState<string | null>(null)
   const [deckTexts, setDeckTexts] = useState<string[]>([''])
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const { data: collection, isLoading, error } = useCollection(userId)
   const importMutation = useImportCollection(userId)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setFileName(file.name)
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        const text = event.target?.result as string
+        setImportText(text)
+      }
+      reader.readAsText(file)
+    }
+  }
 
   const handleTrackerSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -22,6 +37,10 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
         {
           onSuccess: () => {
             setImportText('')
+            setFileName(null)
+            if (fileInputRef.current) {
+              fileInputRef.current.value = ''
+            }
           },
         }
       )
@@ -131,46 +150,59 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
             Import from Tracker or Collection Manager
           </label>
           <p className="text-sm text-gray-500 mb-3">
-            MTG Arena does not have a built-in collection export. Use a tracker
-            like{' '}
-            <a
-              href="https://mtgaassistant.net/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-indigo-600 hover:text-indigo-500"
-            >
-              MTGA Assistant
-            </a>
-            ,{' '}
-            <a
-              href="https://www.mtggoldfish.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-indigo-600 hover:text-indigo-500"
-            >
-              MTGGoldfish
-            </a>
-            , or{' '}
-            <a
-              href="https://mtgahelper.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-indigo-600 hover:text-indigo-500"
-            >
-              MTGAHelper
-            </a>{' '}
-            to export your collection, then paste below.
+            Upload a CSV file or paste your collection export below.
           </p>
+
+          {/* File Upload */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Upload CSV File
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleFileChange}
+                className="block w-full text-sm text-gray-500
+                  file:mr-4 file:py-2 file:px-4
+                  file:rounded-lg file:border-0
+                  file:text-sm file:font-medium
+                  file:bg-indigo-50 file:text-indigo-700
+                  hover:file:bg-indigo-100
+                  disabled:opacity-50"
+                disabled={importMutation.isPending}
+              />
+            </div>
+            {fileName && (
+              <p className="mt-1 text-sm text-green-600">
+                Loaded: {fileName}
+              </p>
+            )}
+          </div>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="bg-white px-2 text-gray-500">or paste text</span>
+            </div>
+          </div>
+
           <div className="mb-3 p-3 bg-gray-50 rounded text-xs text-gray-600 font-mono">
             <p className="font-semibold mb-1">Accepted formats:</p>
+            <p>CSV with Name,Count columns</p>
             <p>4 Lightning Bolt</p>
             <p>4x Monastery Swiftspear</p>
-            <p>"Card Name",Quantity,Set</p>
           </div>
           <textarea
             id="tracker-export"
             value={importText}
-            onChange={(e) => setImportText(e.target.value)}
+            onChange={(e) => {
+              setImportText(e.target.value)
+              setFileName(null)
+            }}
             placeholder="Paste your collection export here..."
             className="w-full h-48 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-sm"
             disabled={importMutation.isPending}
