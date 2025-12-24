@@ -28,6 +28,7 @@ class CollectionResponse(BaseModel):
     user_id: str
     cards: dict[str, int] = Field(default_factory=dict)
     total_cards: int = 0
+    unique_cards: int = 0
 
 
 class CollectionUpdateRequest(BaseModel):
@@ -87,11 +88,16 @@ async def get_user_collection(
     db_collection = await get_collection(session, user_id)
 
     if db_collection is None:
-        return CollectionResponse(user_id=user_id, cards={}, total_cards=0)
+        return CollectionResponse(user_id=user_id, cards={}, total_cards=0, unique_cards=0)
 
     model = collection_to_model(db_collection)
 
-    return CollectionResponse(user_id=user_id, cards=model.cards, total_cards=model.total_cards())
+    return CollectionResponse(
+        user_id=user_id,
+        cards=model.cards,
+        total_cards=model.total_cards(),
+        unique_cards=model.unique_cards(),
+    )
 
 
 @router.put("/{user_id}", response_model=CollectionResponse)
@@ -128,7 +134,12 @@ async def update_user_collection(
     db_collection = await update_collection_cards(session, user_id, request.cards)
     model = collection_to_model(db_collection)
 
-    return CollectionResponse(user_id=user_id, cards=model.cards, total_cards=model.total_cards())
+    return CollectionResponse(
+        user_id=user_id,
+        cards=model.cards,
+        total_cards=model.total_cards(),
+        unique_cards=model.unique_cards(),
+    )
 
 
 @router.delete("/{user_id}", response_model=DeleteResponse)
