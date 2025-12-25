@@ -2,6 +2,7 @@
 Deck improvement service.
 
 Analyzes an existing deck and suggests upgrades from the user's collection.
+Uses synergy detection and tribal awareness for smarter suggestions.
 """
 
 from dataclasses import dataclass, field
@@ -23,6 +24,15 @@ class CardSuggestion:
 
 
 @dataclass
+class DeckThemes:
+    """Detected themes/strategies in a deck."""
+
+    themes: set[str] = field(default_factory=set)
+    tribal_types: dict[str, int] = field(default_factory=dict)  # subtype -> count
+    keywords: set[str] = field(default_factory=set)
+
+
+@dataclass
 class DeckAnalysis:
     """Analysis of a deck with improvement suggestions."""
 
@@ -32,9 +42,112 @@ class DeckAnalysis:
     creature_count: int
     spell_count: int
     land_count: int
+    detected_themes: list[str] = field(default_factory=list)
+    primary_tribe: str | None = None
     suggestions: list[CardSuggestion] = field(default_factory=list)
     general_advice: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
+
+# Theme detection patterns: theme_name -> (oracle_keywords, type_keywords)
+THEME_PATTERNS: dict[str, tuple[list[str], list[str]]] = {
+    "sacrifice": (
+        ["sacrifice", "when this creature dies", "whenever a creature dies", "blood token"],
+        [],
+    ),
+    "tokens": (
+        [
+            "create a",
+            "token",
+            "populate",
+            "go wide",
+            "whenever a creature enters",
+            "when a creature enters",
+        ],
+        [],
+    ),
+    "graveyard": (
+        ["from your graveyard", "mill", "flashback", "escape", "unearth", "dredge"],
+        [],
+    ),
+    "counters": (
+        ["+1/+1 counter", "proliferate", "evolve", "adapt", "modified"],
+        [],
+    ),
+    "lifegain": (
+        ["lifelink", "whenever you gain life", "soul warden", "gain life"],
+        [],
+    ),
+    "spellslinger": (
+        ["prowess", "magecraft", "whenever you cast an instant", "whenever you cast a sorcery"],
+        [],
+    ),
+    "enchantments": (
+        ["constellation", "enchantress", "whenever you cast an enchantment"],
+        ["enchantment"],
+    ),
+    "artifacts": (
+        ["affinity", "improvise", "metalcraft", "whenever an artifact"],
+        ["artifact"],
+    ),
+    "aggro": (
+        ["haste", "first strike", "double strike", "menace"],
+        [],
+    ),
+    "control": (
+        ["counter target", "destroy target", "exile target", "to its owner's hand"],
+        [],
+    ),
+}
+
+# Common tribal types to detect
+TRIBAL_TYPES: set[str] = {
+    "goblin",
+    "elf",
+    "vampire",
+    "zombie",
+    "merfolk",
+    "dragon",
+    "angel",
+    "demon",
+    "wizard",
+    "warrior",
+    "knight",
+    "soldier",
+    "cleric",
+    "rogue",
+    "shaman",
+    "elemental",
+    "spirit",
+    "beast",
+    "dinosaur",
+    "cat",
+    "dog",
+    "rat",
+    "human",
+    "faerie",
+    "giant",
+    "troll",
+    "ogre",
+    "orc",
+    "dwarf",
+    "bird",
+    "snake",
+    "spider",
+    "insect",
+    "horror",
+    "nightmare",
+    "phyrexian",
+    "sliver",
+    "ally",
+    "pirate",
+    "sphinx",
+    "hydra",
+    "wurm",
+    "drake",
+    "phoenix",
+    "shrine",
+}
 
 
 def _get_card_type_category(type_line: str) -> str:
@@ -61,47 +174,147 @@ def _get_card_colors(card_data: dict[str, Any]) -> set[str]:
     return set(colors) if colors else set()
 
 
-def _calculate_power_level(card_data: dict[str, Any]) -> float:
-    """
-    Estimate card power level based on various factors.
+def _extract_subtypes(type_line: str) -> set[str]:
+    """Extract creature subtypes from a type line."""
+    # Type line format: "Legendary Creature — Goblin Warrior"
+    subtypes: set[str] = set()
+    if "—" in type_line:
+        subtype_part = type_line.split("—")[1].strip().lower()
+        for word in subtype_part.split():
+            if word in TRIBAL_TYPES:
+                subtypes.add(word)
+    return subtypes
 
-    Higher score = stronger card. Uses rarity, CMC efficiency, and keywords.
+
+def _detect_deck_themes(
+    deck_cards: dict[str, int],
+    card_db: dict[str, dict[str, Any]],
+) -> DeckThemes:
+    """Analyze deck to detect themes, tribal types, and key mechanics."""
+    themes = DeckThemes()
+    theme_scores: dict[str, int] = dict.fromkeys(THEME_PATTERNS, 0)
+    theme_keywords: dict[str, set[str]] = {theme: set() for theme in THEME_PATTERNS}
+
+    for card_name, quantity in deck_cards.items():
+        card_data = card_db.get(card_name)
+        if not card_data:
+            continue
+
+        oracle = card_data.get("oracle_text", "").lower()
+        type_line = card_data.get("type_line", "").lower()
+
+        # Count tribal types
+        subtypes = _extract_subtypes(card_data.get("type_line", ""))
+        for subtype in subtypes:
+            themes.tribal_types[subtype] = themes.tribal_types.get(subtype, 0) + quantity
+
+        # Score each theme based on keyword matches
+        for theme_name, (oracle_keywords, type_keywords) in THEME_PATTERNS.items():
+            for keyword in oracle_keywords:
+                if keyword in oracle:
+                    theme_scores[theme_name] += quantity
+                    theme_keywords[theme_name].add(keyword)
+            for keyword in type_keywords:
+                if keyword in type_line:
+                    theme_scores[theme_name] += quantity
+
+    # Themes with significant presence (at least 4 cards matching)
+    # Only add keywords for themes that pass the threshold
+    for theme_name, score in theme_scores.items():
+        if score >= 4:
+            themes.themes.add(theme_name)
+            themes.keywords.update(theme_keywords[theme_name])
+
+    return themes
+
+
+def _calculate_synergy_score(
+    card_data: dict[str, Any],
+    deck_themes: DeckThemes,
+    deck_tribal: str | None,
+) -> float:
+    """
+    Score how well a card fits the deck's themes and tribal identity.
+
+    Returns 0-10 score where higher = better fit.
     """
     score = 0.0
+    oracle = card_data.get("oracle_text", "").lower()
+    type_line = card_data.get("type_line", "").lower()
 
-    # Rarity bonus
-    rarity = card_data.get("rarity", "common")
-    rarity_scores = {"common": 1.0, "uncommon": 2.0, "rare": 3.0, "mythic": 4.0}
-    score += rarity_scores.get(rarity, 1.0)
+    # Theme matching (up to 5 points)
+    # Count each theme only once, even if both oracle and type keywords match
+    theme_matches = 0
+    for theme_name, (oracle_keywords, type_keywords) in THEME_PATTERNS.items():
+        if theme_name not in deck_themes.themes:
+            continue
+        theme_matched = False
+        for keyword in oracle_keywords:
+            if keyword in oracle:
+                theme_matched = True
+                break
+        if not theme_matched:
+            for keyword in type_keywords:
+                if keyword in type_line:
+                    theme_matched = True
+                    break
+        if theme_matched:
+            theme_matches += 1
 
-    # CMC efficiency (lower CMC is generally better)
-    cmc = card_data.get("cmc", 3)
-    if cmc > 0:
-        score += max(0, 4 - cmc) * 0.5
+    score += min(5.0, theme_matches * 2.0)
 
-    # Keyword abilities add value
-    oracle_text = card_data.get("oracle_text", "").lower()
-    valuable_keywords = [
-        "draw a card",
-        "destroy",
-        "exile",
-        "counter",
-        "lifelink",
-        "deathtouch",
-        "flying",
-        "haste",
-        "trample",
-        "vigilance",
-        "flash",
-    ]
-    for keyword in valuable_keywords:
-        if keyword in oracle_text:
-            score += 0.5
+    # Tribal matching (up to 3 points)
+    if deck_tribal:
+        subtypes = _extract_subtypes(card_data.get("type_line", ""))
+        if deck_tribal in subtypes:
+            score += 3.0
+        # Cards that care about the tribe also get points
+        # e.g. "whenever a Goblin enters" for goblin deck
+        elif deck_tribal in oracle:
+            score += 2.0
+
+    # Keyword synergy with deck's existing keywords (up to 2 points)
+    keyword_matches = 0
+    for keyword in deck_themes.keywords:
+        if keyword in oracle:
+            keyword_matches += 1
+    score += min(2.0, keyword_matches * 0.5)
 
     return score
 
 
-def _find_upgrades_for_card(
+def _calculate_base_quality(card_data: dict[str, Any]) -> float:
+    """
+    Base card quality score (rarity + efficiency).
+
+    Returns 0-4 score. This is secondary to synergy.
+    """
+    score = 0.0
+
+    # Rarity gives a small bonus
+    rarity = card_data.get("rarity", "common")
+    rarity_scores = {"common": 0.0, "uncommon": 0.5, "rare": 1.0, "mythic": 1.5}
+    score += rarity_scores.get(rarity, 0.0)
+
+    # Efficient mana cost
+    cmc = card_data.get("cmc", 3)
+    if cmc <= 2:
+        score += 0.5
+    elif cmc <= 4:
+        score += 0.25
+
+    # Key evergreen abilities
+    oracle = card_data.get("oracle_text", "").lower()
+    evergreen = ["draw a card", "scry", "flying", "deathtouch", "trample"]
+    for ability in evergreen:
+        if ability in oracle:
+            score += 0.25
+            break
+
+    return min(4.0, score)
+
+
+def _find_synergy_upgrade(
     card_name: str,
     card_quantity: int,
     card_data: dict[str, Any] | None,
@@ -109,28 +322,31 @@ def _find_upgrades_for_card(
     card_db: dict[str, dict[str, Any]],
     deck_cards: set[str],
     deck_colors: set[str],
+    deck_themes: DeckThemes,
+    deck_tribal: str | None,
 ) -> CardSuggestion | None:
-    """Find a potential upgrade for a specific card."""
+    """Find a synergy-based upgrade for a specific card."""
     if card_data is None:
         return None
 
     card_type = _get_card_type_category(card_data.get("type_line", ""))
 
-    # Don't suggest replacing lands with non-lands
+    # Don't suggest replacing lands
     if card_type == "land":
         return None
 
-    card_power = _calculate_power_level(card_data)
+    # Current card's scores
+    current_synergy = _calculate_synergy_score(card_data, deck_themes, deck_tribal)
+    current_quality = _calculate_base_quality(card_data)
+    current_total = current_synergy + current_quality
+
     card_cmc = card_data.get("cmc", 0)
 
-    best_upgrade: tuple[str, float, str] | None = None  # (name, power_diff, reason)
+    best_upgrade: tuple[str, float, str] | None = None
 
     for owned_card, owned_qty in collection.cards.items():
-        # Skip if already in deck
         if owned_card in deck_cards:
             continue
-
-        # Skip if we don't own enough copies
         if owned_qty < card_quantity:
             continue
 
@@ -145,43 +361,59 @@ def _find_upgrades_for_card(
             continue
 
         owned_colors = _get_card_colors(owned_data)
-
-        # Must fit in deck's color identity
         if owned_colors and not owned_colors.issubset(deck_colors):
             continue
 
+        # CMC should be within reasonable range
         owned_cmc = owned_data.get("cmc", 0)
-        owned_power = _calculate_power_level(owned_data)
-
-        # Only suggest if it's meaningfully better
-        power_diff = owned_power - card_power
-        if power_diff < 1.0:
+        if abs(owned_cmc - card_cmc) > 2:
             continue
 
-        # Prefer similar CMC
-        cmc_diff = abs(owned_cmc - card_cmc)
-        if cmc_diff > 2:
+        # Calculate upgrade's scores
+        owned_synergy = _calculate_synergy_score(owned_data, deck_themes, deck_tribal)
+        owned_quality = _calculate_base_quality(owned_data)
+        owned_total = owned_synergy + owned_quality
+
+        # Must be meaningfully better (at least 1 point improvement)
+        improvement = owned_total - current_total
+        if improvement < 1.0:
             continue
 
-        # Build reason
+        # Build reason based on what makes it better
         reasons = []
-        owned_rarity = owned_data.get("rarity", "common")
-        if owned_rarity in ("rare", "mythic"):
-            reasons.append(f"higher rarity ({owned_rarity})")
+        owned_subtypes = _extract_subtypes(owned_data.get("type_line", ""))
 
-        owned_oracle = owned_data.get("oracle_text", "").lower()
-        if "draw" in owned_oracle:
-            reasons.append("provides card advantage")
-        if "destroy" in owned_oracle or "exile" in owned_oracle:
-            reasons.append("better removal")
+        # Synergy reasons
+        if owned_synergy > current_synergy:
+            if deck_tribal and deck_tribal in owned_subtypes:
+                reasons.append(f"matches {deck_tribal} tribal theme")
+            elif deck_themes.themes:
+                matching_themes = []
+                owned_oracle = owned_data.get("oracle_text", "").lower()
+                for theme in deck_themes.themes:
+                    keywords, _ = THEME_PATTERNS.get(theme, ([], []))
+                    if any(kw in owned_oracle for kw in keywords):
+                        matching_themes.append(theme)
+                if matching_themes:
+                    reasons.append(f"synergizes with {matching_themes[0]} strategy")
+
+        # Quality reasons (only if no synergy reason found)
+        if not reasons:
+            owned_oracle = owned_data.get("oracle_text", "").lower()
+            if "draw" in owned_oracle:
+                reasons.append("provides card advantage")
+            elif "destroy" in owned_oracle or "exile" in owned_oracle:
+                reasons.append("better removal")
+            elif owned_quality > current_quality:
+                reasons.append("higher quality card")
 
         if not reasons:
-            reasons.append("stronger card")
+            reasons.append("better overall fit")
 
         reason = ", ".join(reasons)
 
-        if best_upgrade is None or power_diff > best_upgrade[1]:
-            best_upgrade = (owned_card, power_diff, reason)
+        if best_upgrade is None or improvement > best_upgrade[1]:
+            best_upgrade = (owned_card, improvement, reason)
 
     if best_upgrade:
         return CardSuggestion(
@@ -204,6 +436,8 @@ def analyze_and_improve_deck(
     """
     Analyze a deck and suggest improvements from the user's collection.
 
+    Uses synergy detection and tribal awareness for smarter suggestions.
+
     Args:
         deck_text: Arena-format deck list
         collection: User's card collection
@@ -213,7 +447,6 @@ def analyze_and_improve_deck(
     Returns:
         DeckAnalysis with suggestions and advice
     """
-    # Parse the deck
     cards = parse_arena_export(deck_text)
 
     if not cards:
@@ -252,11 +485,21 @@ def analyze_and_improve_deck(
 
     total_cards = sum(deck_cards.values())
 
-    # Find upgrade suggestions
+    # Detect deck themes and tribal identity
+    deck_themes = _detect_deck_themes(deck_cards, card_db)
+
+    # Find primary tribe (if any type has 6+ creatures)
+    primary_tribe: str | None = None
+    if deck_themes.tribal_types:
+        top_tribe = max(deck_themes.tribal_types.items(), key=lambda x: x[1])
+        if top_tribe[1] >= 6:
+            primary_tribe = top_tribe[0]
+
+    # Find upgrade suggestions using synergy scoring
     suggestions: list[CardSuggestion] = []
     deck_card_set = set(deck_cards.keys())
 
-    # Sort by quantity (suggest replacing 4-ofs first for bigger impact)
+    # Sort by quantity (suggest replacing 4-ofs first)
     sorted_cards = sorted(deck_cards.items(), key=lambda x: -x[1])
 
     for card_name, quantity in sorted_cards:
@@ -264,7 +507,7 @@ def analyze_and_improve_deck(
             break
 
         card_data = card_db.get(card_name)
-        suggestion = _find_upgrades_for_card(
+        suggestion = _find_synergy_upgrade(
             card_name,
             quantity,
             card_data,
@@ -272,12 +515,14 @@ def analyze_and_improve_deck(
             card_db,
             deck_card_set,
             colors if colors else {"W", "U", "B", "R", "G"},
+            deck_themes,
+            primary_tribe,
         )
 
         if suggestion:
             suggestions.append(suggestion)
 
-    # Generate general advice
+    # Generate advice
     general_advice: list[str] = []
     warnings: list[str] = []
 
@@ -296,7 +541,7 @@ def analyze_and_improve_deck(
 
     if not suggestions:
         general_advice.append(
-            "No direct upgrades found. Your deck may already use your best cards!"
+            "No synergy-based upgrades found. Your deck may already use your best cards!"
         )
 
     return DeckAnalysis(
@@ -306,6 +551,8 @@ def analyze_and_improve_deck(
         creature_count=creature_count,
         spell_count=spell_count,
         land_count=land_count,
+        detected_themes=list(deck_themes.themes),
+        primary_tribe=primary_tribe,
         suggestions=suggestions,
         general_advice=general_advice,
         warnings=warnings,
@@ -323,6 +570,15 @@ def format_deck_analysis(analysis: DeckAnalysis) -> str:
         f"- Creatures: {analysis.creature_count}, "
         f"Spells: {analysis.spell_count}, Lands: {analysis.land_count}"
     )
+
+    # Detected themes
+    if analysis.detected_themes or analysis.primary_tribe:
+        theme_parts = []
+        if analysis.primary_tribe:
+            theme_parts.append(f"{analysis.primary_tribe.title()} tribal")
+        theme_parts.extend(analysis.detected_themes)
+        lines.append(f"- Detected strategy: {', '.join(theme_parts)}")
+
     lines.append("")
 
     # Warnings first
