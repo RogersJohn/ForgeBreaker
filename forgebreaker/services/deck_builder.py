@@ -29,10 +29,10 @@ COLOR_TO_WORD = {
 # Target mana curve distributions by archetype (CMC bucket -> card count)
 # These are for 36 nonland cards (60 - 24 lands)
 ARCHETYPE_CURVES: dict[str, dict[int, int]] = {
-    "aggro": {1: 10, 2: 12, 3: 8, 4: 4, 5: 2, 6: 0},     # avg ~2.0
-    "midrange": {1: 4, 2: 8, 3: 10, 4: 8, 5: 4, 6: 2},   # avg ~3.0
-    "control": {1: 2, 2: 6, 3: 8, 4: 10, 5: 6, 6: 4},    # avg ~3.5
-    "combo": {1: 6, 2: 8, 3: 8, 4: 6, 5: 4, 6: 4},       # varies
+    "aggro": {1: 10, 2: 12, 3: 8, 4: 4, 5: 2, 6: 0},  # avg ~2.0
+    "midrange": {1: 4, 2: 8, 3: 10, 4: 8, 5: 4, 6: 2},  # avg ~3.0
+    "control": {1: 2, 2: 6, 3: 8, 4: 10, 5: 6, 6: 4},  # avg ~3.5
+    "combo": {1: 6, 2: 8, 3: 8, 4: 6, 5: 4, 6: 4},  # varies
 }
 
 # Keywords that indicate deck archetype
