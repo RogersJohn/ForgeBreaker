@@ -267,11 +267,12 @@ def build_deck(
     role_counts = _count_deck_roles(deck, card_db)
     role_targets = ARCHETYPE_ROLE_TARGETS.get(archetype, {})
 
-    # Add role warnings
+    # Add role warnings (replace underscores for readability)
     for role, target in role_targets.items():
         actual = role_counts.get(role, 0)
         if target > 0 and actual < target:
-            warnings.append(f"Low {role}: {actual}/{target} cards. Consider adding more.")
+            role_display = role.replace("_", " ")
+            warnings.append(f"Low {role_display}: {actual}/{target} cards. Consider adding more.")
 
     # Add curve warnings for archetype mismatch
     avg_cmc = sum(cmc * count for cmc, count in final_curve.items()) / max(
@@ -603,17 +604,29 @@ def _build_mana_base(
             if pip_counts:
                 total_pips = sum(pip_counts.get(c, 0) for c in colors_list)
                 if total_pips > 0:
-                    # Proportional to pips, with rounding
+                    # Proportional to pips using floor + remainder distribution
+                    allocations: list[tuple[str, str, int, float]] = []
                     for color in colors_list:
                         basic_name = COLOR_TO_BASIC_LAND.get(color)
                         if basic_name:
                             pips = pip_counts.get(color, 0)
-                            desired = round(basics_needed * pips / total_pips)
-                            owned = collection.cards.get(basic_name, 0)
-                            add_qty = min(desired, owned, land_count - added)
-                            if add_qty > 0:
-                                lands[basic_name] = add_qty
-                                added += add_qty
+                            exact = basics_needed * pips / total_pips
+                            floor_val = int(exact)
+                            remainder = exact - floor_val
+                            allocations.append((color, basic_name, floor_val, remainder))
+
+                    # Sort by remainder descending to distribute extras fairly
+                    allocations.sort(key=lambda x: -x[3])
+                    total_floor = sum(a[2] for a in allocations)
+                    extras = basics_needed - total_floor
+
+                    for i, (_, basic_name, floor_val, _) in enumerate(allocations):
+                        desired = floor_val + (1 if i < extras else 0)
+                        owned = collection.cards.get(basic_name, 0)
+                        add_qty = min(desired, owned, land_count - added)
+                        if add_qty > 0:
+                            lands[basic_name] = add_qty
+                            added += add_qty
                 else:
                     # No pips, fall back to equal distribution
                     pip_counts = None
@@ -663,11 +676,11 @@ def format_built_deck(deck: BuiltDeck) -> str:
             curve_str = " | ".join(f"{cmc}:{count}" for cmc, count in curve_items)
             lines.append(f"**Mana Curve:** {curve_str}")
 
-    # Role counts (only show roles with cards)
+    # Role counts (only show roles with cards, replace underscores for readability)
     if deck.role_counts:
         role_items = [(role, count) for role, count in deck.role_counts.items() if count > 0]
         if role_items:
-            role_str = " | ".join(f"{role}:{count}" for role, count in role_items)
+            role_str = " | ".join(f"{role.replace('_', ' ')}:{count}" for role, count in role_items)
             lines.append(f"**Roles:** {role_str}")
     lines.append("")
 

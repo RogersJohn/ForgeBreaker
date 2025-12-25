@@ -785,4 +785,4 @@ class TestBuiltDeckRoles:
         )
         formatted = format_built_deck(deck)
         assert "**Roles:**" in formatted
-        assert "removal:4" in formatted
+        assert "removal:4" in formatted  # "removal" has no underscore
