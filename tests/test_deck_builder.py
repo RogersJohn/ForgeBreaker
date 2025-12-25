@@ -510,6 +510,13 @@ class TestScoreForCurve:
         score = _score_for_curve(1, current, target)
         assert score == 0.0
 
+    def test_score_exact_target(self) -> None:
+        """Cards at exact target also score zero."""
+        current = {1: 4}  # Exactly at target
+        target = {1: 4}
+        score = _score_for_curve(1, current, target)
+        assert score == 0.0
+
     def test_score_empty_target(self) -> None:
         """Cards in slots with no target score zero."""
         current = {1: 2}
@@ -593,7 +600,7 @@ class TestBuiltDeckArchetype:
             mana_curve={1: 4},
         )
         formatted = format_built_deck(deck)
-        assert "aggro" in formatted.lower()
+        assert "**Archetype:** Aggro" in formatted
 
     def test_format_includes_mana_curve(self) -> None:
         """Formatted output includes mana curve."""
@@ -609,4 +616,4 @@ class TestBuiltDeckArchetype:
             mana_curve={1: 8},
         )
         formatted = format_built_deck(deck)
-        assert "Mana Curve" in formatted or "curve" in formatted.lower()
+        assert "**Mana Curve:**" in formatted

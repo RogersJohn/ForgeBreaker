@@ -206,8 +206,7 @@ def build_deck(
     support_cards: list[str] = []
 
     if current_count < nonland_target:
-        # Recalculate curve before adding support
-        current_curve = _calculate_curve(deck, card_db)
+        # current_curve already updated in theme card loop above
         support = _find_support_cards(
             collection,
             card_db,
