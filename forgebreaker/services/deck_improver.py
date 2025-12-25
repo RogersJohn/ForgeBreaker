@@ -37,11 +37,6 @@ class DeckAnalysis:
     warnings: list[str] = field(default_factory=list)
 
 
-# Card type patterns for classification
-LAND_TYPES = {"Land", "Basic Land"}
-CREATURE_TYPES = {"Creature", "Legendary Creature"}
-
-
 def _get_card_type_category(type_line: str) -> str:
     """Categorize a card by its type line."""
     type_lower = type_line.lower()
