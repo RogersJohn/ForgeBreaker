@@ -493,10 +493,13 @@ class TestRankDecksWithML:
 
             ranked = await rank_decks_with_ml([deck], collection, rarity_map)
 
-        # Score should be blended with reduced ML weight due to low confidence
-        # Low confidence (0.5) means effective weight = 0.6 * 0.5 = 0.3
+        # Calculate expected blended score:
+        # Basic score: 40 (completion) + 30 (wildcards) + 10 (win rate) + 1 (meta) = 81
+        # ML=0.9, confidence=0.5 -> effective_weight = 0.6 * 0.5 = 0.3
+        # scaled_ml = 90, final = 0.3 * 90 + 0.7 * 81 = 83.7
         assert len(ranked) == 1
-        # Final score should be somewhere between pure ML and pure basic
+        expected_score = 0.3 * 90 + 0.7 * 81  # ~83.7
+        assert abs(ranked[0].score - expected_score) < 0.1
 
     async def test_extracts_features_for_all_decks(self, rarity_map: dict[str, str]) -> None:
         """Features are extracted and sent for each deck."""

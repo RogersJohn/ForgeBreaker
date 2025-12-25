@@ -32,7 +32,7 @@ User Query → ForgeBreaker API
 ```
 
 **Data Flow:**
-1. User requests deck recommendations via `/chat` or `/distance` endpoints
+1. User requests deck recommendations via `/chat` endpoint (using MCP tool calling)
 2. ForgeBreaker loads collection and available meta decks from database
 3. For each deck, extracts ML features: completion %, wildcard costs, archetype, win rate
 4. Sends batch feature request to MLForge (`/api/v1/score/batch`)

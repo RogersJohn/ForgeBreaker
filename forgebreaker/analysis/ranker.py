@@ -222,6 +222,8 @@ async def rank_decks_with_ml(
                 "MLForge scored %d decks successfully",
                 len(scores),
             )
+        else:
+            logger.info("MLForge health check failed, using basic scoring")
     except Exception as e:
         logger.warning("MLForge scoring failed, using basic scoring: %s", e)
         mlforge_available = False
