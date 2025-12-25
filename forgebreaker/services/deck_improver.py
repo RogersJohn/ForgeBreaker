@@ -56,7 +56,14 @@ THEME_PATTERNS: dict[str, tuple[list[str], list[str]]] = {
         [],
     ),
     "tokens": (
-        ["create a", "token", "populate", "go wide", "whenever a creature enters"],
+        [
+            "create a",
+            "token",
+            "populate",
+            "go wide",
+            "whenever a creature enters",
+            "when a creature enters",
+        ],
         [],
     ),
     "graveyard": (
@@ -64,11 +71,11 @@ THEME_PATTERNS: dict[str, tuple[list[str], list[str]]] = {
         [],
     ),
     "counters": (
-        ["+1/+1 counter", "proliferate", "evolve", "adapt", "modify"],
+        ["+1/+1 counter", "proliferate", "evolve", "adapt", "modified"],
         [],
     ),
     "lifegain": (
-        ["lifelink", "whenever you gain life", "pay life", "soul warden"],
+        ["lifelink", "whenever you gain life", "soul warden", "gain life"],
         [],
     ),
     "spellslinger": (
@@ -88,13 +95,13 @@ THEME_PATTERNS: dict[str, tuple[list[str], list[str]]] = {
         [],
     ),
     "control": (
-        ["counter target", "destroy target", "exile target", "return target"],
+        ["counter target", "destroy target", "exile target", "to its owner's hand"],
         [],
     ),
 }
 
 # Common tribal types to detect
-TRIBAL_TYPES = {
+TRIBAL_TYPES: set[str] = {
     "goblin",
     "elf",
     "vampire",
@@ -186,6 +193,7 @@ def _detect_deck_themes(
     """Analyze deck to detect themes, tribal types, and key mechanics."""
     themes = DeckThemes()
     theme_scores: dict[str, int] = dict.fromkeys(THEME_PATTERNS, 0)
+    theme_keywords: dict[str, set[str]] = {theme: set() for theme in THEME_PATTERNS}
 
     for card_name, quantity in deck_cards.items():
         card_data = card_db.get(card_name)
@@ -205,15 +213,17 @@ def _detect_deck_themes(
             for keyword in oracle_keywords:
                 if keyword in oracle:
                     theme_scores[theme_name] += quantity
-                    themes.keywords.add(keyword)
+                    theme_keywords[theme_name].add(keyword)
             for keyword in type_keywords:
                 if keyword in type_line:
                     theme_scores[theme_name] += quantity
 
     # Themes with significant presence (at least 4 cards matching)
+    # Only add keywords for themes that pass the threshold
     for theme_name, score in theme_scores.items():
         if score >= 4:
             themes.themes.add(theme_name)
+            themes.keywords.update(theme_keywords[theme_name])
 
     return themes
 
@@ -233,18 +243,23 @@ def _calculate_synergy_score(
     type_line = card_data.get("type_line", "").lower()
 
     # Theme matching (up to 5 points)
+    # Count each theme only once, even if both oracle and type keywords match
     theme_matches = 0
     for theme_name, (oracle_keywords, type_keywords) in THEME_PATTERNS.items():
         if theme_name not in deck_themes.themes:
             continue
+        theme_matched = False
         for keyword in oracle_keywords:
             if keyword in oracle:
-                theme_matches += 1
+                theme_matched = True
                 break
-        for keyword in type_keywords:
-            if keyword in type_line:
-                theme_matches += 1
-                break
+        if not theme_matched:
+            for keyword in type_keywords:
+                if keyword in type_line:
+                    theme_matched = True
+                    break
+        if theme_matched:
+            theme_matches += 1
 
     score += min(5.0, theme_matches * 2.0)
 

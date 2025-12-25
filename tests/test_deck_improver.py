@@ -84,7 +84,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "colors": ["B"],
             "cmc": 1,
             "rarity": "uncommon",
-            "oracle_text": "When Cauldron Familiar enters, opponent loses 1 life. "
+            "oracle_text": "When Cauldron Familiar enters, the opponent loses 1 life. "
             "Sacrifice a Food: Return Cauldron Familiar from your graveyard.",
         },
         "Priest of Forgotten Gods": {
