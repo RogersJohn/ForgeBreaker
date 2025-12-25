@@ -26,6 +26,23 @@ COLOR_TO_WORD = {
     "G": "green",
 }
 
+# Target mana curve distributions by archetype (CMC bucket -> card count)
+# These are for 36 nonland cards (60 - 24 lands)
+ARCHETYPE_CURVES: dict[str, dict[int, int]] = {
+    "aggro": {1: 10, 2: 12, 3: 8, 4: 4, 5: 2, 6: 0},     # avg ~2.0
+    "midrange": {1: 4, 2: 8, 3: 10, 4: 8, 5: 4, 6: 2},   # avg ~3.0
+    "control": {1: 2, 2: 6, 3: 8, 4: 10, 5: 6, 6: 4},    # avg ~3.5
+    "combo": {1: 6, 2: 8, 3: 8, 4: 6, 5: 4, 6: 4},       # varies
+}
+
+# Keywords that indicate deck archetype
+ARCHETYPE_INDICATORS: dict[str, list[str]] = {
+    "aggro": ["haste", "first strike", "menace", "prowess", "attacks"],
+    "control": ["counter target", "destroy target", "exile target", "draw a card"],
+    "combo": ["whenever", "sacrifice", "untap", "add {", "copy"],
+    "midrange": ["enter", "value", "dies", "when this creature"],
+}
+
 
 @dataclass
 class BuiltDeck:
@@ -38,6 +55,8 @@ class BuiltDeck:
     theme_cards: list[str]
     support_cards: list[str]
     lands: dict[str, int]
+    archetype: str = "midrange"  # aggro, midrange, control, combo
+    mana_curve: dict[int, int] = field(default_factory=dict)  # CMC -> count
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -139,6 +158,11 @@ def build_deck(
 
     notes.append(f"Deck colors: {', '.join(sorted(deck_colors))}")
 
+    # Step 2.5: Detect archetype and get curve targets
+    archetype = _detect_archetype(request.theme, theme_cards)
+    target_curve = ARCHETYPE_CURVES.get(archetype, ARCHETYPE_CURVES["midrange"])
+    notes.append(f"Detected archetype: {archetype}")
+
     # Step 3: Build deck
     deck: dict[str, int] = {}
     nonland_target = request.deck_size - request.land_count
@@ -152,19 +176,40 @@ def build_deck(
             else:
                 warnings.append(f"Cannot include {card_name} - not owned or not legal")
 
-    # Add theme cards (prioritize)
-    for card_name, qty, _ in theme_cards:
+    # Add theme cards (prioritize by curve fit)
+    current_curve = _calculate_curve(deck, card_db)
+
+    # Sort theme cards by curve fit score
+    scored_theme: list[tuple[str, int, float]] = []
+    for card_name, qty, card_data in theme_cards:
         if card_name in deck:
             continue
-        deck[card_name] = min(qty, 4)
+        cmc = card_data.get("cmc", 2)
+        curve_score = _score_for_curve(cmc, current_curve, target_curve)
+        scored_theme.append((card_name, qty, curve_score))
+
+    # Add cards that fill curve gaps first
+    scored_theme.sort(key=lambda x: -x[2])
+
+    for card_name, qty, _ in scored_theme:
+        add_qty = min(qty, 4)
+        deck[card_name] = add_qty
+        # Update curve after adding
+        card_data = card_db.get(card_name)
+        if card_data:
+            cmc = card_data.get("cmc", 2)
+            bucket = _get_cmc_bucket(cmc)
+            current_curve[bucket] = current_curve.get(bucket, 0) + add_qty
 
     current_count = sum(deck.values())
     theme_card_names = [name for name, _, _ in theme_cards]
 
-    # Step 4: Add support cards
+    # Step 4: Add support cards (curve-aware)
     support_cards: list[str] = []
 
     if current_count < nonland_target:
+        # Recalculate curve before adding support
+        current_curve = _calculate_curve(deck, card_db)
         support = _find_support_cards(
             collection,
             card_db,
@@ -172,6 +217,8 @@ def build_deck(
             deck_colors,
             set(deck.keys()),
             nonland_target - current_count,
+            current_curve,
+            target_curve,
         )
 
         for card_name, qty in support:
@@ -182,6 +229,9 @@ def build_deck(
 
     if current_count < nonland_target:
         warnings.append(f"Could only find {current_count} nonland cards (target: {nonland_target})")
+
+    # Calculate final curve for output
+    final_curve = _calculate_curve(deck, card_db)
 
     # Step 5: Add lands
     lands = _build_mana_base(collection, card_db, legal_cards, deck_colors, request.land_count)
@@ -194,6 +244,15 @@ def build_deck(
 
     total_cards = current_count + total_lands
 
+    # Add curve warnings for archetype mismatch
+    avg_cmc = sum(cmc * count for cmc, count in final_curve.items()) / max(
+        sum(final_curve.values()), 1
+    )
+    if archetype == "aggro" and avg_cmc > 2.5:
+        warnings.append(f"Aggro deck avg CMC is {avg_cmc:.1f}. Consider lower-cost cards.")
+    elif archetype == "control" and avg_cmc < 2.5:
+        warnings.append(f"Control deck avg CMC is {avg_cmc:.1f}. May lack late-game power.")
+
     return BuiltDeck(
         name=f"{request.theme.title()} Deck",
         cards=deck,
@@ -202,6 +261,8 @@ def build_deck(
         theme_cards=theme_card_names,
         support_cards=support_cards,
         lands=lands,
+        archetype=archetype,
+        mana_curve=final_curve,
         notes=notes,
         warnings=warnings,
     )
@@ -225,6 +286,107 @@ def _matches_theme(card_name: str, card_data: dict[str, Any], theme: str) -> boo
     return theme_lower in oracle
 
 
+def _detect_archetype(
+    theme: str,
+    theme_cards: list[tuple[str, int, dict[str, Any]]],
+) -> str:
+    """
+    Detect deck archetype from theme and card characteristics.
+
+    Analyzes theme cards' oracle text and CMC to classify as:
+    - aggro: Low CMC, combat keywords (haste, first strike)
+    - control: High CMC, removal/counter keywords
+    - combo: Engine pieces, sacrifice/untap effects
+    - midrange: Default, balanced approach
+    """
+    # Score each archetype based on keyword matches
+    scores: dict[str, int] = {"aggro": 0, "control": 0, "combo": 0, "midrange": 0}
+
+    total_cmc = 0.0
+    card_count = 0
+
+    for _, qty, card_data in theme_cards:
+        oracle = card_data.get("oracle_text", "").lower()
+        cmc = card_data.get("cmc", 2)
+
+        total_cmc += cmc * qty
+        card_count += qty
+
+        for archetype, keywords in ARCHETYPE_INDICATORS.items():
+            for keyword in keywords:
+                if keyword in oracle:
+                    scores[archetype] += qty
+                    break
+
+    # Average CMC influences archetype
+    avg_cmc = total_cmc / card_count if card_count > 0 else 3.0
+
+    if avg_cmc <= 2.0:
+        scores["aggro"] += 5
+    elif avg_cmc >= 3.5:
+        scores["control"] += 3
+
+    # Theme-based hints
+    theme_lower = theme.lower()
+    if any(kw in theme_lower for kw in ["aggro", "burn", "red deck", "sligh"]):
+        scores["aggro"] += 10
+    elif any(kw in theme_lower for kw in ["control", "draw", "counter"]):
+        scores["control"] += 10
+    elif any(kw in theme_lower for kw in ["combo", "storm", "sacrifice"]):
+        scores["combo"] += 10
+
+    # Return highest scoring archetype, default to midrange
+    best = max(scores.items(), key=lambda x: x[1])
+    return best[0] if best[1] > 0 else "midrange"
+
+
+def _get_cmc_bucket(cmc: float) -> int:
+    """Convert CMC to curve bucket (1-6, where 6 = 6+)."""
+    if cmc <= 0:
+        return 1
+    if cmc >= 6:
+        return 6
+    return int(cmc)
+
+
+def _calculate_curve(
+    cards: dict[str, int],
+    card_db: dict[str, dict[str, Any]],
+) -> dict[int, int]:
+    """Calculate mana curve distribution for nonland cards."""
+    curve: dict[int, int] = {1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0}
+
+    for card_name, qty in cards.items():
+        card_data = card_db.get(card_name)
+        if not card_data:
+            continue
+
+        # Skip lands
+        if "Land" in card_data.get("type_line", ""):
+            continue
+
+        cmc = card_data.get("cmc", 2)
+        bucket = _get_cmc_bucket(cmc)
+        curve[bucket] += qty
+
+    return curve
+
+
+def _score_for_curve(
+    cmc: float,
+    current_curve: dict[int, int],
+    target_curve: dict[int, int],
+) -> float:
+    """Score a card based on how much it helps fill curve gaps."""
+    bucket = _get_cmc_bucket(cmc)
+    current = current_curve.get(bucket, 0)
+    target = target_curve.get(bucket, 0)
+
+    if current >= target:
+        return 0.0  # Already have enough at this CMC
+    return (target - current) / target  # 0-1 score, higher = more needed
+
+
 def _find_support_cards(
     collection: Collection,
     card_db: dict[str, dict[str, Any]],
@@ -232,6 +394,8 @@ def _find_support_cards(
     colors: set[str],
     exclude: set[str],
     count_needed: int,
+    current_curve: dict[int, int] | None = None,
+    target_curve: dict[int, int] | None = None,
 ) -> list[tuple[str, int]]:
     """Find support cards (removal, draw, etc.) in the right colors."""
     # Keywords that indicate useful support cards
@@ -244,7 +408,8 @@ def _find_support_cards(
         "return target",
     ]
 
-    candidates: list[tuple[str, int, float]] = []  # (name, qty, cmc)
+    # (name, qty, cmc, curve_score)
+    candidates: list[tuple[str, int, float, float]] = []
 
     for card_name, qty in collection.cards.items():
         if card_name in exclude:
@@ -269,15 +434,19 @@ def _find_support_cards(
         oracle = card_data.get("oracle_text", "").lower()
         if any(kw in oracle for kw in support_keywords):
             cmc = card_data.get("cmc", 5)
-            candidates.append((card_name, qty, cmc))
+            # Calculate curve fit score if curves provided
+            curve_score = 0.0
+            if current_curve and target_curve:
+                curve_score = _score_for_curve(cmc, current_curve, target_curve)
+            candidates.append((card_name, qty, cmc, curve_score))
 
-    # Sort by CMC (prefer cheaper cards)
-    candidates.sort(key=lambda x: x[2])
+    # Sort by curve fit first (higher = fills gap), then by CMC
+    candidates.sort(key=lambda x: (-x[3], x[2]))
 
     result: list[tuple[str, int]] = []
     added = 0
 
-    for card_name, qty, _ in candidates:
+    for card_name, qty, _, _ in candidates:
         if added >= count_needed:
             break
         add_qty = min(qty, 4, count_needed - added)
@@ -372,7 +541,14 @@ def format_built_deck(deck: BuiltDeck) -> str:
         lines.append("")
 
     lines.append(f"**Colors:** {', '.join(sorted(deck.colors)) or 'Colorless'}")
-    lines.append(f"**Total Cards:** {deck.total_cards}\n")
+    lines.append(f"**Archetype:** {deck.archetype.title()}")
+    lines.append(f"**Total Cards:** {deck.total_cards}")
+
+    # Mana curve
+    if deck.mana_curve:
+        curve_str = " | ".join(f"{cmc}:{count}" for cmc, count in sorted(deck.mana_curve.items()))
+        lines.append(f"**Mana Curve:** {curve_str}")
+    lines.append("")
 
     # Theme cards
     if deck.theme_cards:
