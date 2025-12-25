@@ -421,15 +421,15 @@ class TestArchetypeDetection:
         assert result == "midrange"
 
     def test_detect_aggro_from_low_cmc(self) -> None:
-        """Low average CMC influences aggro detection."""
+        """Low average CMC pushes toward aggro detection."""
         theme_cards = [
             ("Card1", 4, {"cmc": 1, "oracle_text": ""}),
             ("Card2", 4, {"cmc": 1, "oracle_text": ""}),
             ("Card3", 4, {"cmc": 2, "oracle_text": ""}),
         ]
         result = _detect_archetype("generic", theme_cards)
-        # Low CMC should push toward aggro
-        assert result in ("aggro", "midrange")
+        # Avg CMC ~1.33 is well below 2.0 threshold, should be aggro
+        assert result == "aggro"
 
 
 class TestCMCBucket:
@@ -447,6 +447,12 @@ class TestCMCBucket:
         assert _get_cmc_bucket(6) == 6
         assert _get_cmc_bucket(7) == 6
         assert _get_cmc_bucket(10) == 6
+
+    def test_bucket_fractional_cmc(self) -> None:
+        """Fractional CMC cards bucket via int() truncation."""
+        assert _get_cmc_bucket(2.5) == 2
+        assert _get_cmc_bucket(3.5) == 3
+        assert _get_cmc_bucket(1.5) == 1
 
 
 class TestCalculateCurve:

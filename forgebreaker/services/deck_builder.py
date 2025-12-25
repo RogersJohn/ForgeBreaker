@@ -40,7 +40,7 @@ ARCHETYPE_INDICATORS: dict[str, list[str]] = {
     "aggro": ["haste", "first strike", "menace", "prowess", "attacks"],
     "control": ["counter target", "destroy target", "exile target", "draw a card"],
     "combo": ["whenever", "sacrifice", "untap", "add {", "copy"],
-    "midrange": ["enter", "value", "dies", "when this creature"],
+    "midrange": ["enter", "gain life", "dies", "when this creature"],
 }
 
 
@@ -179,27 +179,25 @@ def build_deck(
     # Add theme cards (prioritize by curve fit)
     current_curve = _calculate_curve(deck, card_db)
 
-    # Sort theme cards by curve fit score
-    scored_theme: list[tuple[str, int, float]] = []
+    # Sort theme cards by curve fit score, keeping card_data for later use
+    scored_theme: list[tuple[str, int, float, dict[str, Any]]] = []
     for card_name, qty, card_data in theme_cards:
         if card_name in deck:
             continue
         cmc = card_data.get("cmc", 2)
         curve_score = _score_for_curve(cmc, current_curve, target_curve)
-        scored_theme.append((card_name, qty, curve_score))
+        scored_theme.append((card_name, qty, curve_score, card_data))
 
     # Add cards that fill curve gaps first
     scored_theme.sort(key=lambda x: -x[2])
 
-    for card_name, qty, _ in scored_theme:
+    for card_name, qty, _, card_data in scored_theme:
         add_qty = min(qty, 4)
         deck[card_name] = add_qty
         # Update curve after adding
-        card_data = card_db.get(card_name)
-        if card_data:
-            cmc = card_data.get("cmc", 2)
-            bucket = _get_cmc_bucket(cmc)
-            current_curve[bucket] = current_curve.get(bucket, 0) + add_qty
+        cmc = card_data.get("cmc", 2)
+        bucket = _get_cmc_bucket(cmc)
+        current_curve[bucket] = current_curve.get(bucket, 0) + add_qty
 
     current_count = sum(deck.values())
     theme_card_names = [name for name, _, _ in theme_cards]
@@ -382,6 +380,9 @@ def _score_for_curve(
     current = current_curve.get(bucket, 0)
     target = target_curve.get(bucket, 0)
 
+    # No target for this CMC bucket means it doesn't contribute to score
+    if target == 0:
+        return 0.0
     if current >= target:
         return 0.0  # Already have enough at this CMC
     return (target - current) / target  # 0-1 score, higher = more needed
@@ -544,10 +545,12 @@ def format_built_deck(deck: BuiltDeck) -> str:
     lines.append(f"**Archetype:** {deck.archetype.title()}")
     lines.append(f"**Total Cards:** {deck.total_cards}")
 
-    # Mana curve
+    # Mana curve (only show buckets with cards)
     if deck.mana_curve:
-        curve_str = " | ".join(f"{cmc}:{count}" for cmc, count in sorted(deck.mana_curve.items()))
-        lines.append(f"**Mana Curve:** {curve_str}")
+        curve_items = [(cmc, count) for cmc, count in sorted(deck.mana_curve.items()) if count > 0]
+        if curve_items:
+            curve_str = " | ".join(f"{cmc}:{count}" for cmc, count in curve_items)
+            lines.append(f"**Mana Curve:** {curve_str}")
     lines.append("")
 
     # Theme cards
