@@ -417,9 +417,7 @@ class TestRankDecksWithML:
         assert ranked[1].deck.name == "Deck A"
         mock_client.score_decks.assert_called_once()
 
-    async def test_falls_back_when_mlforge_unavailable(
-        self, rarity_map: dict[str, str]
-    ) -> None:
+    async def test_falls_back_when_mlforge_unavailable(self, rarity_map: dict[str, str]) -> None:
         """Uses basic scoring when MLForge health check fails."""
         deck = MetaDeck(
             name="Test Deck",
@@ -441,9 +439,7 @@ class TestRankDecksWithML:
         # score_decks should not be called if health check fails
         mock_client.score_decks.assert_not_called()
 
-    async def test_handles_mlforge_error_gracefully(
-        self, rarity_map: dict[str, str]
-    ) -> None:
+    async def test_handles_mlforge_error_gracefully(self, rarity_map: dict[str, str]) -> None:
         """Continues with basic scoring when MLForge throws an exception."""
         deck = MetaDeck(
             name="Test Deck",
@@ -465,9 +461,7 @@ class TestRankDecksWithML:
         assert len(ranked) == 1
         assert ranked[0].deck.name == "Test Deck"
 
-    async def test_empty_deck_list_returns_empty(
-        self, rarity_map: dict[str, str]
-    ) -> None:
+    async def test_empty_deck_list_returns_empty(self, rarity_map: dict[str, str]) -> None:
         """Empty input returns empty output without calling MLForge."""
         collection = Collection()
 
@@ -476,9 +470,7 @@ class TestRankDecksWithML:
 
         assert ranked == []
 
-    async def test_blends_scores_with_confidence(
-        self, rarity_map: dict[str, str]
-    ) -> None:
+    async def test_blends_scores_with_confidence(self, rarity_map: dict[str, str]) -> None:
         """ML score weight is adjusted by confidence level."""
         deck = MetaDeck(
             name="Test Deck",
@@ -506,9 +498,7 @@ class TestRankDecksWithML:
         assert len(ranked) == 1
         # Final score should be somewhere between pure ML and pure basic
 
-    async def test_extracts_features_for_all_decks(
-        self, rarity_map: dict[str, str]
-    ) -> None:
+    async def test_extracts_features_for_all_decks(self, rarity_map: dict[str, str]) -> None:
         """Features are extracted and sent for each deck."""
         decks = [
             MetaDeck(
@@ -522,8 +512,7 @@ class TestRankDecksWithML:
         collection = Collection(cards={"Lightning Bolt": 4})
 
         mock_scores = [
-            RecommendationScore(deck_name=f"Deck {i}", score=0.5, confidence=0.8)
-            for i in range(3)
+            RecommendationScore(deck_name=f"Deck {i}", score=0.5, confidence=0.8) for i in range(3)
         ]
 
         with patch("forgebreaker.ml.inference.get_mlforge_client") as mock_get_client:

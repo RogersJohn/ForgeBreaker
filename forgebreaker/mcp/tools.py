@@ -404,8 +404,7 @@ async def get_deck_recommendations(
     # Build rarity map from card database for accurate wildcard costs
     card_db = _get_card_db_safe()
     rarity_map: dict[str, str] = {
-        name: data.get("rarity", "common")
-        for name, data in card_db.items()
+        name: data.get("rarity", "common") for name, data in card_db.items()
     }
 
     # Rank decks using ML scoring if enabled, otherwise basic scoring
@@ -422,9 +421,7 @@ async def get_deck_recommendations(
             {
                 "deck_name": ranked_deck.deck.name,
                 "archetype": ranked_deck.deck.archetype,
-                "completion_percentage": round(
-                    ranked_deck.distance.completion_percentage * 100, 1
-                ),
+                "completion_percentage": round(ranked_deck.distance.completion_percentage * 100, 1),
                 "missing_cards": ranked_deck.distance.missing_cards,
                 "wildcard_cost": ranked_deck.distance.wildcard_cost.total(),
                 "score": round(ranked_deck.score, 2),

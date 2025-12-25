@@ -202,10 +202,7 @@ async def rank_decks_with_ml(
         deck_data.append((deck, distance, basic_score))
 
     # Step 2: Extract ML features for each deck
-    features_list = [
-        extract_deck_features(deck, distance)
-        for deck, distance, _ in deck_data
-    ]
+    features_list = [extract_deck_features(deck, distance) for deck, distance, _ in deck_data]
 
     # Step 3: Call MLForge for ML-based scoring
     ml_scores: dict[str, float] = {}
@@ -243,10 +240,7 @@ async def rank_decks_with_ml(
             scaled_ml_score = ml_score * 100.0
             # Adjust weight by confidence
             effective_weight = ML_SCORE_WEIGHT * confidence
-            final_score = (
-                effective_weight * scaled_ml_score
-                + (1 - effective_weight) * basic_score
-            )
+            final_score = effective_weight * scaled_ml_score + (1 - effective_weight) * basic_score
         else:
             final_score = basic_score
 
