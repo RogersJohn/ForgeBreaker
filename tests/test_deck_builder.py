@@ -8,10 +8,15 @@ from forgebreaker.models.collection import Collection
 from forgebreaker.services.deck_builder import (
     ARCHETYPE_CURVES,
     ARCHETYPE_INDICATORS,
+    ARCHETYPE_ROLE_TARGETS,
+    DECK_ROLES,
     BuiltDeck,
     DeckBuildRequest,
     _calculate_curve,
+    _count_color_pips,
+    _count_deck_roles,
     _detect_archetype,
+    _get_card_role,
     _get_cmc_bucket,
     _score_for_curve,
     build_deck,
@@ -617,3 +622,167 @@ class TestBuiltDeckArchetype:
         )
         formatted = format_built_deck(deck)
         assert "**Mana Curve:**" in formatted
+
+
+class TestRoleDetection:
+    """Tests for card role detection."""
+
+    def test_get_card_role_removal(self) -> None:
+        """Detects removal cards."""
+        assert _get_card_role("Destroy target creature.") == "removal"
+        assert _get_card_role("Exile target permanent.") == "removal"
+        assert _get_card_role("Lightning Bolt deals 3 damage to any target.") == "removal"
+
+    def test_get_card_role_card_draw(self) -> None:
+        """Detects card draw cards."""
+        assert _get_card_role("Draw a card.") == "card_draw"
+        assert _get_card_role("Scry 2, then draw a card.") == "card_draw"
+        assert _get_card_role("Look at the top three cards.") == "card_draw"
+
+    def test_get_card_role_ramp(self) -> None:
+        """Detects ramp cards."""
+        assert _get_card_role("Add {G}{G}.") == "ramp"
+        assert _get_card_role("Search your library for a basic land.") == "ramp"
+
+    def test_get_card_role_finisher(self) -> None:
+        """Detects finisher cards."""
+        assert _get_card_role("Flying, trample") == "finisher"
+        assert _get_card_role("This creature can't be blocked.") == "finisher"
+
+    def test_get_card_role_none(self) -> None:
+        """Returns None for cards without clear role."""
+        assert _get_card_role("When this creature enters the battlefield") is None
+        assert _get_card_role("") is None
+
+
+class TestDeckRoles:
+    """Tests for deck role counting."""
+
+    def test_count_deck_roles_empty(self) -> None:
+        """Empty deck has zero roles."""
+        cards: dict[str, int] = {}
+        card_db: dict[str, dict[str, Any]] = {}
+        result = _count_deck_roles(cards, card_db)
+        assert all(v == 0 for v in result.values())
+
+    def test_count_deck_roles_removal(self) -> None:
+        """Counts removal cards."""
+        cards = {"Murder": 4, "Lightning Bolt": 4}
+        card_db = {
+            "Murder": {"type_line": "Instant", "oracle_text": "Destroy target creature."},
+            "Lightning Bolt": {"type_line": "Instant", "oracle_text": "Damage to any target."},
+        }
+        result = _count_deck_roles(cards, card_db)
+        assert result["removal"] == 8
+
+    def test_count_deck_roles_skips_lands(self) -> None:
+        """Lands are not counted for roles."""
+        cards = {"Mountain": 10, "Lightning Bolt": 4}
+        card_db = {
+            "Mountain": {"type_line": "Basic Land — Mountain", "oracle_text": ""},
+            "Lightning Bolt": {"type_line": "Instant", "oracle_text": "Damage to any target."},
+        }
+        result = _count_deck_roles(cards, card_db)
+        assert result["removal"] == 4
+
+
+class TestColorPipCounting:
+    """Tests for color pip counting."""
+
+    def test_count_color_pips_empty(self) -> None:
+        """Empty deck has zero pips."""
+        cards: dict[str, int] = {}
+        card_db: dict[str, dict[str, Any]] = {}
+        result = _count_color_pips(cards, card_db)
+        assert all(v == 0 for v in result.values())
+
+    def test_count_color_pips_single_color(self) -> None:
+        """Counts pips for single color cards."""
+        cards = {"Lightning Bolt": 4}
+        card_db = {"Lightning Bolt": {"type_line": "Instant", "mana_cost": "{R}"}}
+        result = _count_color_pips(cards, card_db)
+        assert result["R"] == 4
+        assert result["W"] == 0
+
+    def test_count_color_pips_multicolor(self) -> None:
+        """Counts pips for multicolor cards."""
+        cards = {"Terminate": 4}
+        card_db = {"Terminate": {"type_line": "Instant", "mana_cost": "{B}{R}"}}
+        result = _count_color_pips(cards, card_db)
+        assert result["B"] == 4
+        assert result["R"] == 4
+
+    def test_count_color_pips_double_pip(self) -> None:
+        """Counts double pips correctly."""
+        cards = {"Counterspell": 4}
+        card_db = {"Counterspell": {"type_line": "Instant", "mana_cost": "{U}{U}"}}
+        result = _count_color_pips(cards, card_db)
+        assert result["U"] == 8  # 2 pips × 4 copies
+
+    def test_count_color_pips_skips_lands(self) -> None:
+        """Lands are not counted for pips."""
+        cards = {"Island": 10, "Counterspell": 4}
+        card_db = {
+            "Island": {"type_line": "Basic Land — Island", "mana_cost": ""},
+            "Counterspell": {"type_line": "Instant", "mana_cost": "{U}{U}"},
+        }
+        result = _count_color_pips(cards, card_db)
+        assert result["U"] == 8
+
+
+class TestRoleConstants:
+    """Tests for role constants."""
+
+    def test_all_roles_defined(self) -> None:
+        """All expected roles are defined."""
+        assert "removal" in DECK_ROLES
+        assert "card_draw" in DECK_ROLES
+        assert "ramp" in DECK_ROLES
+        assert "finisher" in DECK_ROLES
+
+    def test_all_archetypes_have_role_targets(self) -> None:
+        """All archetypes have role targets."""
+        assert "aggro" in ARCHETYPE_ROLE_TARGETS
+        assert "midrange" in ARCHETYPE_ROLE_TARGETS
+        assert "control" in ARCHETYPE_ROLE_TARGETS
+        assert "combo" in ARCHETYPE_ROLE_TARGETS
+
+    def test_control_has_most_removal(self) -> None:
+        """Control decks target most removal."""
+        control_removal = ARCHETYPE_ROLE_TARGETS["control"]["removal"]
+        aggro_removal = ARCHETYPE_ROLE_TARGETS["aggro"]["removal"]
+        assert control_removal > aggro_removal
+
+
+class TestBuiltDeckRoles:
+    """Tests for role counts in built decks."""
+
+    def test_built_deck_has_role_counts(
+        self,
+        collection: Collection,
+        card_db: dict[str, dict[str, Any]],
+        format_legality: dict[str, set[str]],
+    ) -> None:
+        """Built deck includes role_counts field."""
+        request = DeckBuildRequest(theme="Shrine", format="historic")
+        deck = build_deck(request, collection, card_db, format_legality)
+        assert hasattr(deck, "role_counts")
+        assert isinstance(deck.role_counts, dict)
+
+    def test_format_includes_roles(self) -> None:
+        """Formatted output includes roles."""
+        deck = BuiltDeck(
+            name="Test Deck",
+            cards={"Lightning Bolt": 4},
+            total_cards=4,
+            colors={"R"},
+            theme_cards=["Lightning Bolt"],
+            support_cards=[],
+            lands={},
+            archetype="aggro",
+            mana_curve={1: 4},
+            role_counts={"removal": 4, "card_draw": 0, "ramp": 0, "finisher": 0},
+        )
+        formatted = format_built_deck(deck)
+        assert "**Roles:**" in formatted
+        assert "removal:4" in formatted
