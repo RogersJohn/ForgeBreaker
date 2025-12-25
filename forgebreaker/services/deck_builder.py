@@ -43,6 +43,22 @@ ARCHETYPE_INDICATORS: dict[str, list[str]] = {
     "midrange": ["enter", "gain life", "dies", "when this creature"],
 }
 
+# Keywords that identify card roles in a deck
+DECK_ROLES: dict[str, list[str]] = {
+    "removal": ["destroy target", "exile target", "damage to any", "damage to target"],
+    "card_draw": ["draw a card", "draw two", "scry", "look at the top"],
+    "ramp": ["add {", "search your library for a basic land"],
+    "finisher": ["trample", "flying", "can't be blocked", "double strike"],
+}
+
+# Minimum cards per role by archetype
+ARCHETYPE_ROLE_TARGETS: dict[str, dict[str, int]] = {
+    "aggro": {"removal": 4, "card_draw": 0, "ramp": 0, "finisher": 4},
+    "midrange": {"removal": 6, "card_draw": 2, "ramp": 2, "finisher": 4},
+    "control": {"removal": 8, "card_draw": 4, "ramp": 0, "finisher": 2},
+    "combo": {"removal": 4, "card_draw": 4, "ramp": 2, "finisher": 0},
+}
+
 
 @dataclass
 class BuiltDeck:
@@ -57,6 +73,7 @@ class BuiltDeck:
     lands: dict[str, int]
     archetype: str = "midrange"  # aggro, midrange, control, combo
     mana_curve: dict[int, int] = field(default_factory=dict)  # CMC -> count
+    role_counts: dict[str, int] = field(default_factory=dict)  # role -> count
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
@@ -230,8 +247,13 @@ def build_deck(
     # Calculate final curve for output
     final_curve = _calculate_curve(deck, card_db)
 
-    # Step 5: Add lands
-    lands = _build_mana_base(collection, card_db, legal_cards, deck_colors, request.land_count)
+    # Count color pips for land distribution
+    pip_counts = _count_color_pips(deck, card_db)
+
+    # Step 5: Add lands (proportional to color pips)
+    lands = _build_mana_base(
+        collection, card_db, legal_cards, deck_colors, request.land_count, pip_counts
+    )
 
     total_lands = sum(lands.values())
     if total_lands < request.land_count:
@@ -240,6 +262,17 @@ def build_deck(
         )
 
     total_cards = current_count + total_lands
+
+    # Count roles in the deck
+    role_counts = _count_deck_roles(deck, card_db)
+    role_targets = ARCHETYPE_ROLE_TARGETS.get(archetype, {})
+
+    # Add role warnings (replace underscores for readability)
+    for role, target in role_targets.items():
+        actual = role_counts.get(role, 0)
+        if target > 0 and actual < target:
+            role_display = role.replace("_", " ")
+            warnings.append(f"Low {role_display}: {actual}/{target} cards. Consider adding more.")
 
     # Add curve warnings for archetype mismatch
     avg_cmc = sum(cmc * count for cmc, count in final_curve.items()) / max(
@@ -260,6 +293,7 @@ def build_deck(
         lands=lands,
         archetype=archetype,
         mana_curve=final_curve,
+        role_counts=role_counts,
         notes=notes,
         warnings=warnings,
     )
@@ -387,6 +421,64 @@ def _score_for_curve(
     return (target - current) / target  # 0-1 score, higher = more needed
 
 
+def _get_card_role(oracle_text: str) -> str | None:
+    """Identify the primary role of a card from its oracle text."""
+    oracle_lower = oracle_text.lower()
+    for role, keywords in DECK_ROLES.items():
+        if any(kw in oracle_lower for kw in keywords):
+            return role
+    return None
+
+
+def _count_deck_roles(
+    cards: dict[str, int],
+    card_db: dict[str, dict[str, Any]],
+) -> dict[str, int]:
+    """Count cards by role in the deck."""
+    role_counts: dict[str, int] = dict.fromkeys(DECK_ROLES, 0)
+
+    for card_name, qty in cards.items():
+        card_data = card_db.get(card_name)
+        if not card_data:
+            continue
+
+        # Skip lands
+        if "Land" in card_data.get("type_line", ""):
+            continue
+
+        oracle = card_data.get("oracle_text", "")
+        role = _get_card_role(oracle)
+        if role:
+            role_counts[role] += qty
+
+    return role_counts
+
+
+def _count_color_pips(
+    cards: dict[str, int],
+    card_db: dict[str, dict[str, Any]],
+) -> dict[str, int]:
+    """Count color pips in mana costs for land distribution."""
+    # Pattern: {W}, {U}, {B}, {R}, {G} in mana_cost field
+    pip_counts: dict[str, int] = {"W": 0, "U": 0, "B": 0, "R": 0, "G": 0}
+
+    for card_name, qty in cards.items():
+        card_data = card_db.get(card_name)
+        if not card_data:
+            continue
+
+        # Skip lands
+        if "Land" in card_data.get("type_line", ""):
+            continue
+
+        mana_cost = card_data.get("mana_cost", "")
+        for color in pip_counts:
+            # Count occurrences of {W}, {U}, etc.
+            pip_counts[color] += mana_cost.count(f"{{{color}}}") * qty
+
+    return pip_counts
+
+
 def _find_support_cards(
     collection: Collection,
     card_db: dict[str, dict[str, Any]],
@@ -462,8 +554,9 @@ def _build_mana_base(
     legal_cards: set[str],
     colors: set[str],
     land_count: int,
+    pip_counts: dict[str, int] | None = None,
 ) -> dict[str, int]:
-    """Build a mana base from owned lands."""
+    """Build a mana base from owned lands, using pip counts for distribution."""
     lands: dict[str, int] = {}
     added = 0
 
@@ -501,25 +594,57 @@ def _build_mana_base(
             lands[card_name] = add_qty
             added += add_qty
 
-    # Fill rest with basics (only use what the user owns)
+    # Fill rest with basics proportional to pip counts
     if added < land_count and colors:
         basics_needed = land_count - added
         colors_list = sorted(colors - {"C"})
 
         if colors_list:
-            per_color = basics_needed // len(colors_list)
-            remainder = basics_needed % len(colors_list)
+            # Use pip counts if provided, otherwise equal distribution
+            if pip_counts:
+                total_pips = sum(pip_counts.get(c, 0) for c in colors_list)
+                if total_pips > 0:
+                    # Proportional to pips using floor + remainder distribution
+                    allocations: list[tuple[str, str, int, float]] = []
+                    for color in colors_list:
+                        basic_name = COLOR_TO_BASIC_LAND.get(color)
+                        if basic_name:
+                            pips = pip_counts.get(color, 0)
+                            exact = basics_needed * pips / total_pips
+                            floor_val = int(exact)
+                            remainder = exact - floor_val
+                            allocations.append((color, basic_name, floor_val, remainder))
 
-            for i, color in enumerate(colors_list):
-                basic_name = COLOR_TO_BASIC_LAND.get(color)
-                if basic_name:
-                    desired = per_color + (1 if i < remainder else 0)
-                    # Only add basics the user actually owns
-                    owned = collection.cards.get(basic_name, 0)
-                    add_qty = min(desired, owned, land_count - added)
-                    if add_qty > 0:
-                        lands[basic_name] = add_qty
-                        added += add_qty
+                    # Sort by remainder descending to distribute extras fairly
+                    allocations.sort(key=lambda x: -x[3])
+                    total_floor = sum(a[2] for a in allocations)
+                    extras = basics_needed - total_floor
+
+                    for i, (_, basic_name, floor_val, _) in enumerate(allocations):
+                        desired = floor_val + (1 if i < extras else 0)
+                        owned = collection.cards.get(basic_name, 0)
+                        add_qty = min(desired, owned, land_count - added)
+                        if add_qty > 0:
+                            lands[basic_name] = add_qty
+                            added += add_qty
+                else:
+                    # No pips, fall back to equal distribution
+                    pip_counts = None
+
+            if not pip_counts:
+                # Equal distribution fallback
+                per_color = basics_needed // len(colors_list)
+                remainder = basics_needed % len(colors_list)
+
+                for i, color in enumerate(colors_list):
+                    basic_name = COLOR_TO_BASIC_LAND.get(color)
+                    if basic_name:
+                        desired = per_color + (1 if i < remainder else 0)
+                        owned = collection.cards.get(basic_name, 0)
+                        add_qty = min(desired, owned, land_count - added)
+                        if add_qty > 0:
+                            lands[basic_name] = add_qty
+                            added += add_qty
 
     return lands
 
@@ -550,6 +675,13 @@ def format_built_deck(deck: BuiltDeck) -> str:
         if curve_items:
             curve_str = " | ".join(f"{cmc}:{count}" for cmc, count in curve_items)
             lines.append(f"**Mana Curve:** {curve_str}")
+
+    # Role counts (only show roles with cards, replace underscores for readability)
+    if deck.role_counts:
+        role_items = [(role, count) for role, count in deck.role_counts.items() if count > 0]
+        if role_items:
+            role_str = " | ".join(f"{role.replace('_', ' ')}:{count}" for role, count in role_items)
+            lines.append(f"**Roles:** {role_str}")
     lines.append("")
 
     # Theme cards
