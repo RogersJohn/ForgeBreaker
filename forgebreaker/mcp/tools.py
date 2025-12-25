@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from forgebreaker.analysis.distance import calculate_deck_distance
-from forgebreaker.analysis.ranker import rank_decks
+from forgebreaker.analysis.ranker import rank_decks, rank_decks_with_ml
 from forgebreaker.db import (
     collection_to_model,
     get_collection,
@@ -365,18 +365,30 @@ async def get_deck_recommendations(
     user_id: str,
     format_name: str,
     limit: int = 5,
+    use_ml: bool = True,
 ) -> dict[str, Any]:
     """
     Get ranked deck recommendations for a user.
+
+    Uses MLForge ML-based scoring when available, falling back to
+    heuristic scoring if MLForge is unavailable.
+
+    Data flow:
+    1. Load user collection from database
+    2. Load meta decks for format
+    3. Extract features & call MLForge for ML scoring
+    4. Blend ML score with completion/wildcard heuristics
+    5. Return ranked recommendations
 
     Args:
         session: Database session
         user_id: User's ID
         format_name: Game format
         limit: Maximum recommendations to return
+        use_ml: Whether to use MLForge scoring (default True)
 
     Returns:
-        Dict with recommendations list
+        Dict with recommendations list and scoring metadata
     """
     # Get user's collection
     db_collection = await get_collection(session, user_id)
@@ -389,9 +401,20 @@ async def get_deck_recommendations(
     if not decks:
         return {"recommendations": [], "message": f"No decks found for {format_name}"}
 
-    # Rank decks by buildability
-    rarity_map: dict[str, str] = {}  # TODO: Load from Scryfall
-    ranked = rank_decks(decks, collection, rarity_map)
+    # Build rarity map from card database for accurate wildcard costs
+    card_db = _get_card_db_safe()
+    rarity_map: dict[str, str] = {
+        name: data.get("rarity", "common")
+        for name, data in card_db.items()
+    }
+
+    # Rank decks using ML scoring if enabled, otherwise basic scoring
+    if use_ml:
+        ranked = await rank_decks_with_ml(decks, collection, rarity_map)
+        scoring_method = "ml_blended"
+    else:
+        ranked = rank_decks(decks, collection, rarity_map)
+        scoring_method = "heuristic"
 
     recommendations = []
     for ranked_deck in ranked[:limit]:
@@ -399,14 +422,21 @@ async def get_deck_recommendations(
             {
                 "deck_name": ranked_deck.deck.name,
                 "archetype": ranked_deck.deck.archetype,
-                "completion_percentage": round(ranked_deck.distance.completion_percentage * 100, 1),
+                "completion_percentage": round(
+                    ranked_deck.distance.completion_percentage * 100, 1
+                ),
                 "missing_cards": ranked_deck.distance.missing_cards,
                 "wildcard_cost": ranked_deck.distance.wildcard_cost.total(),
                 "score": round(ranked_deck.score, 2),
+                "can_build_now": ranked_deck.can_build_now,
             }
         )
 
-    return {"recommendations": recommendations}
+    return {
+        "recommendations": recommendations,
+        "scoring_method": scoring_method,
+        "format": format_name,
+    }
 
 
 async def calculate_deck_distance_tool(
