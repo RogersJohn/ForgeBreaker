@@ -3,14 +3,23 @@ Deck ranking algorithm.
 
 Ranks meta decks by suitability for a user's collection, considering
 completion percentage, wildcard cost, win rate, and meta share.
+Optionally uses MLForge for ML-based recommendation scoring.
 """
+
+import logging
 
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.models.collection import Collection
 from forgebreaker.models.deck import DeckDistance, MetaDeck, RankedDeck
 
+logger = logging.getLogger(__name__)
+
 # Default wildcard budget thresholds (rare-equivalent)
 DEFAULT_BUDGET = 20.0
+
+# Weight for blending ML score with basic score (0.0-1.0)
+# 0.6 = 60% ML score, 40% basic score
+ML_SCORE_WEIGHT = 0.6
 
 
 def rank_decks(
@@ -147,3 +156,110 @@ def get_budget_decks(
     """
     ranked = rank_decks(decks, collection, rarity_map, wildcard_budget)
     return [r for r in ranked if r.within_budget]
+
+
+async def rank_decks_with_ml(
+    decks: list[MetaDeck],
+    collection: Collection,
+    rarity_map: dict[str, str],
+    wildcard_budget: float = DEFAULT_BUDGET,
+) -> list[RankedDeck]:
+    """
+    Rank decks using MLForge ML-based scoring blended with basic metrics.
+
+    This function extracts features from each deck, sends them to MLForge
+    for ML scoring, then blends the ML score with the basic heuristic score.
+    Falls back to basic scoring if MLForge is unavailable.
+
+    Data flow:
+    1. Calculate deck distances (completion %, wildcard costs)
+    2. Extract ML features (DeckFeatures) for each deck
+    3. Call MLForge batch scoring API
+    4. Blend ML score (60%) with basic score (40%)
+    5. Return ranked list
+
+    Args:
+        decks: List of meta decks to evaluate
+        collection: User's card collection
+        rarity_map: Mapping of card names to rarities
+        wildcard_budget: Max weighted wildcard cost to consider "within budget"
+
+    Returns:
+        List of RankedDeck sorted by blended score (highest first)
+    """
+    # Import here to avoid circular imports
+    from forgebreaker.ml.features import extract_deck_features
+    from forgebreaker.ml.inference import get_mlforge_client
+
+    if not decks:
+        return []
+
+    # Step 1: Calculate distances and basic scores for all decks
+    deck_data: list[tuple[MetaDeck, DeckDistance, float]] = []
+    for deck in decks:
+        distance = calculate_deck_distance(deck, collection, rarity_map)
+        basic_score = _calculate_score(distance)
+        deck_data.append((deck, distance, basic_score))
+
+    # Step 2: Extract ML features for each deck
+    features_list = [extract_deck_features(deck, distance) for deck, distance, _ in deck_data]
+
+    # Step 3: Call MLForge for ML-based scoring
+    ml_scores: dict[str, float] = {}
+    ml_confidences: dict[str, float] = {}
+    mlforge_available = False
+
+    client = get_mlforge_client()
+    try:
+        # Check health first to fail fast
+        if await client.health_check():
+            mlforge_available = True
+            scores = await client.score_decks(features_list)
+            for score in scores:
+                ml_scores[score.deck_name] = score.score
+                ml_confidences[score.deck_name] = score.confidence
+            logger.info(
+                "MLForge scored %d decks successfully",
+                len(scores),
+            )
+        else:
+            logger.info("MLForge health check failed, using basic scoring")
+    except Exception as e:
+        logger.warning("MLForge scoring failed, using basic scoring: %s", e)
+        mlforge_available = False
+
+    # Step 4: Build ranked decks with blended scores
+    ranked: list[RankedDeck] = []
+    for deck, distance, basic_score in deck_data:
+        can_build = distance.is_complete
+        within_budget = distance.wildcard_cost.weighted_cost() <= wildcard_budget
+
+        # Blend ML score with basic score if available
+        if mlforge_available and deck.name in ml_scores:
+            ml_score = ml_scores[deck.name]
+            confidence = ml_confidences.get(deck.name, 1.0)
+            # Scale ML score (0-1) to match basic score range (0-100)
+            scaled_ml_score = ml_score * 100.0
+            # Adjust weight by confidence
+            effective_weight = ML_SCORE_WEIGHT * confidence
+            final_score = effective_weight * scaled_ml_score + (1 - effective_weight) * basic_score
+        else:
+            final_score = basic_score
+
+        reason = _generate_recommendation_reason(distance, can_build, within_budget)
+
+        ranked.append(
+            RankedDeck(
+                deck=deck,
+                distance=distance,
+                score=final_score,
+                can_build_now=can_build,
+                within_budget=within_budget,
+                recommendation_reason=reason,
+            )
+        )
+
+    # Step 5: Sort by final score descending
+    ranked.sort(key=lambda r: r.score, reverse=True)
+
+    return ranked

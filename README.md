@@ -1,22 +1,54 @@
 # ForgeBreaker
 
-MTG Arena collection manager that suggests decks based on owned cards.
+MTG Arena collection manager that suggests decks based on owned cards, using ML-powered recommendations.
 
 ## Features
 
 - Import your Arena collection via text export
 - Browse competitive meta decks from MTGGoldfish
 - See how close you are to completing each deck
-- Get deck recommendations based on your wildcard budget
-- AI-powered deck advice via Claude
+- **ML-powered deck recommendations** blending collection analysis with MLForge scoring
+- Get recommendations based on your wildcard budget
+- AI-powered deck advice via Claude with MCP tool calling
+
+## Architecture
+
+ForgeBreaker integrates with MLForge for ML-based deck recommendations:
+
+```
+User Query → ForgeBreaker API
+                ↓
+         Load Collection (PostgreSQL)
+                ↓
+         Load Meta Decks (MTGGoldfish)
+                ↓
+         Extract Features (DeckFeatures)
+                ↓
+         Call MLForge API (batch scoring)
+                ↓
+         Blend ML Score (60%) + Heuristics (40%)
+                ↓
+         Return Ranked Recommendations
+```
+
+**Data Flow:**
+1. User requests deck recommendations via `/chat` endpoint (using MCP tool calling)
+2. ForgeBreaker loads collection and available meta decks from database
+3. For each deck, extracts ML features: completion %, wildcard costs, archetype, win rate
+4. Sends batch feature request to MLForge (`/api/v1/score/batch`)
+5. MLForge returns ML confidence scores for each deck
+6. Blends ML score (weighted by confidence) with heuristic score
+7. Returns ranked deck recommendations with `scoring_method: "ml_blended"`
+
+**Graceful Fallback:** If MLForge is unavailable, automatically falls back to heuristic-only scoring.
 
 ## Tech Stack
 
 - **Backend**: Python 3.11+ / FastAPI
 - **Frontend**: React 18 / TypeScript / Tailwind CSS
 - **Database**: PostgreSQL (async via SQLAlchemy 2.0)
-- **ML**: MLForge API integration
-- **LLM**: Claude API with tool calling
+- **ML**: MLForge API for recommendation scoring
+- **LLM**: Claude API with MCP tool calling
 
 ## Development
 

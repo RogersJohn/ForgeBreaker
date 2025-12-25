@@ -1,7 +1,15 @@
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from forgebreaker.analysis.distance import calculate_deck_distance
-from forgebreaker.analysis.ranker import get_budget_decks, get_buildable_decks, rank_decks
+from forgebreaker.analysis.ranker import (
+    get_budget_decks,
+    get_buildable_decks,
+    rank_decks,
+    rank_decks_with_ml,
+)
+from forgebreaker.ml.inference import RecommendationScore
 from forgebreaker.models.collection import Collection
 from forgebreaker.models.deck import MetaDeck
 
@@ -369,3 +377,156 @@ class TestGetBudgetDecks:
 
         assert len(budget_decks) == 1
         assert budget_decks[0].deck.name == "Cheap"
+
+
+class TestRankDecksWithML:
+    """Tests for ML-enhanced deck ranking via MLForge integration."""
+
+    async def test_uses_mlforge_when_available(self, rarity_map: dict[str, str]) -> None:
+        """Blends MLForge scores with basic scores when API is available."""
+        deck_a = MetaDeck(
+            name="Deck A",
+            archetype="aggro",
+            format="standard",
+            cards={"Lightning Bolt": 4},
+        )
+        deck_b = MetaDeck(
+            name="Deck B",
+            archetype="control",
+            format="standard",
+            cards={"Lightning Bolt": 4},
+        )
+        collection = Collection(cards={"Lightning Bolt": 4})
+
+        # Mock MLForge to return scores favoring Deck B
+        mock_scores = [
+            RecommendationScore(deck_name="Deck A", score=0.3, confidence=0.9),
+            RecommendationScore(deck_name="Deck B", score=0.9, confidence=0.9),
+        ]
+
+        with patch("forgebreaker.ml.inference.get_mlforge_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.health_check.return_value = True
+            mock_client.score_decks.return_value = mock_scores
+            mock_get_client.return_value = mock_client
+
+            ranked = await rank_decks_with_ml([deck_a, deck_b], collection, rarity_map)
+
+        # Deck B should rank higher due to higher ML score
+        assert ranked[0].deck.name == "Deck B"
+        assert ranked[1].deck.name == "Deck A"
+        mock_client.score_decks.assert_called_once()
+
+    async def test_falls_back_when_mlforge_unavailable(self, rarity_map: dict[str, str]) -> None:
+        """Uses basic scoring when MLForge health check fails."""
+        deck = MetaDeck(
+            name="Test Deck",
+            archetype="aggro",
+            format="standard",
+            cards={"Lightning Bolt": 4},
+        )
+        collection = Collection(cards={"Lightning Bolt": 4})
+
+        with patch("forgebreaker.ml.inference.get_mlforge_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.health_check.return_value = False
+            mock_get_client.return_value = mock_client
+
+            ranked = await rank_decks_with_ml([deck], collection, rarity_map)
+
+        assert len(ranked) == 1
+        assert ranked[0].deck.name == "Test Deck"
+        # score_decks should not be called if health check fails
+        mock_client.score_decks.assert_not_called()
+
+    async def test_handles_mlforge_error_gracefully(self, rarity_map: dict[str, str]) -> None:
+        """Continues with basic scoring when MLForge throws an exception."""
+        deck = MetaDeck(
+            name="Test Deck",
+            archetype="aggro",
+            format="standard",
+            cards={"Lightning Bolt": 4},
+        )
+        collection = Collection(cards={"Lightning Bolt": 4})
+
+        with patch("forgebreaker.ml.inference.get_mlforge_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.health_check.return_value = True
+            mock_client.score_decks.side_effect = Exception("API timeout")
+            mock_get_client.return_value = mock_client
+
+            ranked = await rank_decks_with_ml([deck], collection, rarity_map)
+
+        # Should still return results using basic scoring
+        assert len(ranked) == 1
+        assert ranked[0].deck.name == "Test Deck"
+
+    async def test_empty_deck_list_returns_empty(self, rarity_map: dict[str, str]) -> None:
+        """Empty input returns empty output without calling MLForge."""
+        collection = Collection()
+
+        # No need to mock - function returns early for empty list
+        ranked = await rank_decks_with_ml([], collection, rarity_map)
+
+        assert ranked == []
+
+    async def test_blends_scores_with_confidence(self, rarity_map: dict[str, str]) -> None:
+        """ML score weight is adjusted by confidence level."""
+        deck = MetaDeck(
+            name="Test Deck",
+            archetype="aggro",
+            format="standard",
+            cards={"Lightning Bolt": 4},
+        )
+        collection = Collection(cards={"Lightning Bolt": 4})
+
+        # High ML score but low confidence
+        mock_scores = [
+            RecommendationScore(deck_name="Test Deck", score=0.9, confidence=0.5),
+        ]
+
+        with patch("forgebreaker.ml.inference.get_mlforge_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.health_check.return_value = True
+            mock_client.score_decks.return_value = mock_scores
+            mock_get_client.return_value = mock_client
+
+            ranked = await rank_decks_with_ml([deck], collection, rarity_map)
+
+        # Calculate expected blended score:
+        # Basic score: 40 (completion) + 30 (wildcards) + 10 (win rate) + 1 (meta) = 81
+        # ML=0.9, confidence=0.5 -> effective_weight = 0.6 * 0.5 = 0.3
+        # scaled_ml = 90, final = 0.3 * 90 + 0.7 * 81 = 83.7
+        assert len(ranked) == 1
+        expected_score = 0.3 * 90 + 0.7 * 81  # ~83.7
+        assert abs(ranked[0].score - expected_score) < 0.1
+
+    async def test_extracts_features_for_all_decks(self, rarity_map: dict[str, str]) -> None:
+        """Features are extracted and sent for each deck."""
+        decks = [
+            MetaDeck(
+                name=f"Deck {i}",
+                archetype="aggro",
+                format="standard",
+                cards={"Lightning Bolt": 4},
+            )
+            for i in range(3)
+        ]
+        collection = Collection(cards={"Lightning Bolt": 4})
+
+        mock_scores = [
+            RecommendationScore(deck_name=f"Deck {i}", score=0.5, confidence=0.8) for i in range(3)
+        ]
+
+        with patch("forgebreaker.ml.inference.get_mlforge_client") as mock_get_client:
+            mock_client = AsyncMock()
+            mock_client.health_check.return_value = True
+            mock_client.score_decks.return_value = mock_scores
+            mock_get_client.return_value = mock_client
+
+            ranked = await rank_decks_with_ml(decks, collection, rarity_map)
+
+        assert len(ranked) == 3
+        # Verify score_decks was called with 3 feature sets
+        call_args = mock_client.score_decks.call_args[0][0]
+        assert len(call_args) == 3
