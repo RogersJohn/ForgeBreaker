@@ -38,6 +38,16 @@ class CardSuggestion:
 
 
 @dataclass
+class UpgradeCandidate:
+    """Candidate for a card upgrade with scoring info."""
+
+    card_name: str
+    improvement_score: float
+    reason: str
+    card_data: dict[str, Any]
+
+
+@dataclass
 class DeckThemes:
     """Detected themes/strategies in a deck."""
 
@@ -358,7 +368,7 @@ def _find_synergy_upgrade(
 
     card_cmc = card_data.get("cmc", 0)
 
-    best_upgrade: tuple[str, float, str, dict[str, Any]] | None = None
+    best_upgrade: UpgradeCandidate | None = None
 
     for owned_card, owned_qty in collection.cards.items():
         if owned_card in deck_cards:
@@ -428,19 +438,23 @@ def _find_synergy_upgrade(
 
         reason = ", ".join(reasons)
 
-        if best_upgrade is None or improvement > best_upgrade[1]:
-            best_upgrade = (owned_card, improvement, reason, owned_data)
+        if best_upgrade is None or improvement > best_upgrade.improvement_score:
+            best_upgrade = UpgradeCandidate(
+                card_name=owned_card,
+                improvement_score=improvement,
+                reason=reason,
+                card_data=owned_data,
+            )
 
     if best_upgrade:
-        upgrade_data = best_upgrade[3]
         return CardSuggestion(
             remove_card=card_name,
             remove_quantity=card_quantity,
-            add_card=best_upgrade[0],
+            add_card=best_upgrade.card_name,
             add_quantity=card_quantity,
-            reason=best_upgrade[2],
+            reason=best_upgrade.reason,
             remove_card_text=card_data.get("oracle_text", ""),
-            add_card_text=upgrade_data.get("oracle_text", ""),
+            add_card_text=best_upgrade.card_data.get("oracle_text", ""),
         )
 
     return None
