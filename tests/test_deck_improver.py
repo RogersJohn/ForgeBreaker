@@ -152,9 +152,7 @@ class TestAnalyzeAndImproveDeck:
         shock_suggestions = [s for s in analysis.suggestions if s.remove_card == "Shock"]
         assert len(shock_suggestions) > 0
 
-    def test_respects_color_identity(
-        self, card_db: dict[str, dict[str, Any]]
-    ) -> None:
+    def test_respects_color_identity(self, card_db: dict[str, dict[str, Any]]) -> None:
         """Does not suggest cards outside deck's color identity."""
         deck_text = """Deck
 4 Shock (STA) 44
@@ -175,9 +173,7 @@ class TestAnalyzeAndImproveDeck:
         ]
         assert len(sheoldred_suggestions) == 0
 
-    def test_no_suggestions_when_already_optimal(
-        self, card_db: dict[str, dict[str, Any]]
-    ) -> None:
+    def test_no_suggestions_when_already_optimal(self, card_db: dict[str, dict[str, Any]]) -> None:
         """No suggestions when deck already uses best available cards."""
         deck_text = """Deck
 4 Lightning Bolt (STA) 42
@@ -195,9 +191,7 @@ class TestAnalyzeAndImproveDeck:
         # Should not suggest downgrading to Shock
         assert len(analysis.suggestions) == 0
 
-    def test_warns_low_land_count(
-        self, card_db: dict[str, dict[str, Any]]
-    ) -> None:
+    def test_warns_low_land_count(self, card_db: dict[str, dict[str, Any]]) -> None:
         """Warns when deck has too few lands."""
         deck_text = """Deck
 40 Shock (STA) 44
@@ -213,9 +207,7 @@ class TestAnalyzeAndImproveDeck:
 
         assert any("land" in w.lower() for w in analysis.warnings)
 
-    def test_warns_low_card_count(
-        self, card_db: dict[str, dict[str, Any]]
-    ) -> None:
+    def test_warns_low_card_count(self, card_db: dict[str, dict[str, Any]]) -> None:
         """Warns when deck has fewer than 60 cards."""
         deck_text = """Deck
 4 Shock (STA) 44
@@ -231,9 +223,7 @@ class TestAnalyzeAndImproveDeck:
 
         assert any("14 cards" in w for w in analysis.warnings)
 
-    def test_handles_empty_deck(
-        self, card_db: dict[str, dict[str, Any]]
-    ) -> None:
+    def test_handles_empty_deck(self, card_db: dict[str, dict[str, Any]]) -> None:
         """Handles empty deck input gracefully."""
         collection = Collection()
 
@@ -246,9 +236,7 @@ class TestAnalyzeAndImproveDeck:
         assert analysis.total_cards == 0
         assert len(analysis.warnings) > 0
 
-    def test_respects_max_suggestions(
-        self, card_db: dict[str, dict[str, Any]]
-    ) -> None:
+    def test_respects_max_suggestions(self, card_db: dict[str, dict[str, Any]]) -> None:
         """Respects max_suggestions parameter."""
         deck_text = """Deck
 4 Shock (STA) 44

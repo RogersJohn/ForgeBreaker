@@ -289,21 +289,15 @@ def analyze_and_improve_deck(
     if total_cards < 60:
         warnings.append(f"Deck has only {total_cards} cards. Standard decks need 60.")
     elif total_cards > 60:
-        general_advice.append(
-            f"Deck has {total_cards} cards. Consider cutting to exactly 60."
-        )
+        general_advice.append(f"Deck has {total_cards} cards. Consider cutting to exactly 60.")
 
     if land_count < 20:
-        warnings.append(
-            f"Only {land_count} lands may cause mana problems. Consider 22-26 lands."
-        )
+        warnings.append(f"Only {land_count} lands may cause mana problems. Consider 22-26 lands.")
     elif land_count > 26:
         general_advice.append(f"{land_count} lands is high. Consider cutting 1-2.")
 
     if creature_count == 0 and spell_count > 0:
-        general_advice.append(
-            "No creatures detected. Make sure you have win conditions."
-        )
+        general_advice.append("No creatures detected. Make sure you have win conditions.")
 
     if not suggestions:
         general_advice.append(
