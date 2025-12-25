@@ -13,6 +13,17 @@ from forgebreaker.parsers.arena_export import parse_arena_export
 
 
 @dataclass
+class CardDetails:
+    """Card information including oracle text."""
+
+    name: str
+    quantity: int
+    type_line: str
+    oracle_text: str
+    mana_cost: str = ""
+
+
+@dataclass
 class CardSuggestion:
     """A suggested card swap."""
 
@@ -21,6 +32,9 @@ class CardSuggestion:
     add_card: str
     add_quantity: int
     reason: str
+    # Include oracle text for both cards so AI can compare accurately
+    remove_card_text: str = ""
+    add_card_text: str = ""
 
 
 @dataclass
@@ -47,6 +61,8 @@ class DeckAnalysis:
     suggestions: list[CardSuggestion] = field(default_factory=list)
     general_advice: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Include oracle text for key cards so AI can accurately describe them
+    card_details: list[CardDetails] = field(default_factory=list)
 
 
 # Theme detection patterns: theme_name -> (oracle_keywords, type_keywords)
@@ -342,7 +358,7 @@ def _find_synergy_upgrade(
 
     card_cmc = card_data.get("cmc", 0)
 
-    best_upgrade: tuple[str, float, str] | None = None
+    best_upgrade: tuple[str, float, str, dict[str, Any]] | None = None
 
     for owned_card, owned_qty in collection.cards.items():
         if owned_card in deck_cards:
@@ -413,15 +429,18 @@ def _find_synergy_upgrade(
         reason = ", ".join(reasons)
 
         if best_upgrade is None or improvement > best_upgrade[1]:
-            best_upgrade = (owned_card, improvement, reason)
+            best_upgrade = (owned_card, improvement, reason, owned_data)
 
     if best_upgrade:
+        upgrade_data = best_upgrade[3]
         return CardSuggestion(
             remove_card=card_name,
             remove_quantity=card_quantity,
             add_card=best_upgrade[0],
             add_quantity=card_quantity,
             reason=best_upgrade[2],
+            remove_card_text=card_data.get("oracle_text", ""),
+            add_card_text=upgrade_data.get("oracle_text", ""),
         )
 
     return None
@@ -544,6 +563,25 @@ def analyze_and_improve_deck(
             "No synergy-based upgrades found. Your deck may already use your best cards!"
         )
 
+    # Collect card details (oracle text) for all non-land cards
+    card_details: list[CardDetails] = []
+    for card_name, quantity in deck_cards.items():
+        card_data = card_db.get(card_name)
+        if card_data:
+            card_type = _get_card_type_category(card_data.get("type_line", ""))
+            # Skip basic lands - their text isn't useful
+            if card_type == "land" and "basic" in card_data.get("type_line", "").lower():
+                continue
+            card_details.append(
+                CardDetails(
+                    name=card_name,
+                    quantity=quantity,
+                    type_line=card_data.get("type_line", ""),
+                    oracle_text=card_data.get("oracle_text", ""),
+                    mana_cost=card_data.get("mana_cost", ""),
+                )
+            )
+
     return DeckAnalysis(
         original_cards=deck_cards,
         total_cards=total_cards,
@@ -556,6 +594,7 @@ def analyze_and_improve_deck(
         suggestions=suggestions,
         general_advice=general_advice,
         warnings=warnings,
+        card_details=card_details,
     )
 
 
@@ -588,7 +627,7 @@ def format_deck_analysis(analysis: DeckAnalysis) -> str:
             lines.append(f"- {warning}")
         lines.append("")
 
-    # Suggestions
+    # Suggestions with oracle text for accurate AI descriptions
     if analysis.suggestions:
         lines.append("**Suggested Upgrades:**")
         for i, suggestion in enumerate(analysis.suggestions, 1):
@@ -597,6 +636,11 @@ def format_deck_analysis(analysis: DeckAnalysis) -> str:
                 f"with {suggestion.add_quantity}x {suggestion.add_card}"
             )
             lines.append(f"   Reason: {suggestion.reason}")
+            # Include oracle text so AI can accurately describe the cards
+            if suggestion.remove_card_text:
+                lines.append(f"   [{suggestion.remove_card}]: {suggestion.remove_card_text}")
+            if suggestion.add_card_text:
+                lines.append(f"   [{suggestion.add_card}]: {suggestion.add_card_text}")
         lines.append("")
 
     # General advice
@@ -604,5 +648,14 @@ def format_deck_analysis(analysis: DeckAnalysis) -> str:
         lines.append("**Tips:**")
         for advice in analysis.general_advice:
             lines.append(f"- {advice}")
+        lines.append("")
+
+    # Card reference with oracle text for all cards in deck
+    if analysis.card_details:
+        lines.append("**Card Reference (oracle text):**")
+        for card in sorted(analysis.card_details, key=lambda c: c.name):
+            lines.append(f"- **{card.name}** ({card.type_line})")
+            if card.oracle_text:
+                lines.append(f"  {card.oracle_text}")
 
     return "\n".join(lines)

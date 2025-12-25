@@ -6,6 +6,7 @@ import pytest
 
 from forgebreaker.models.collection import Collection
 from forgebreaker.services.deck_improver import (
+    CardDetails,
     CardSuggestion,
     DeckAnalysis,
     _detect_deck_themes,
@@ -435,6 +436,51 @@ class TestAnalyzeAndImproveDeck:
 
         assert len(analysis.suggestions) <= 1
 
+    def test_includes_card_details(
+        self,
+        goblin_deck_text: str,
+        card_db: dict[str, dict[str, Any]],
+    ) -> None:
+        """Includes card details with oracle text for non-land cards."""
+        collection = Collection()
+
+        analysis = analyze_and_improve_deck(
+            deck_text=goblin_deck_text,
+            collection=collection,
+            card_db=card_db,
+        )
+
+        # Should have card details for non-basic-land cards
+        assert len(analysis.card_details) > 0
+
+        # Check that Goblin Guide is in the details with oracle text
+        goblin_guide = next((c for c in analysis.card_details if c.name == "Goblin Guide"), None)
+        assert goblin_guide is not None
+        assert "Haste" in goblin_guide.oracle_text
+
+        # Mountains (basic lands) should be excluded
+        mountain = next((c for c in analysis.card_details if c.name == "Mountain"), None)
+        assert mountain is None
+
+    def test_suggestion_includes_oracle_text(
+        self,
+        goblin_deck_text: str,
+        card_db: dict[str, dict[str, Any]],
+    ) -> None:
+        """Suggestions include oracle text for both cards."""
+        collection = Collection(cards={"Goblin Chieftain": 4})
+
+        analysis = analyze_and_improve_deck(
+            deck_text=goblin_deck_text,
+            collection=collection,
+            card_db=card_db,
+        )
+
+        if analysis.suggestions:
+            suggestion = analysis.suggestions[0]
+            # Should have oracle text for the add card
+            assert suggestion.add_card_text != ""
+
 
 class TestFormatDeckAnalysis:
     """Tests for format_deck_analysis function."""
@@ -547,3 +593,56 @@ class TestFormatDeckAnalysis:
 
         assert "removal" in formatted
         assert "Tips" in formatted
+
+    def test_includes_suggestion_oracle_text(self) -> None:
+        """Includes oracle text for suggested card swaps."""
+        analysis = DeckAnalysis(
+            original_cards={},
+            total_cards=60,
+            colors={"R"},
+            creature_count=20,
+            spell_count=16,
+            land_count=24,
+            suggestions=[
+                CardSuggestion(
+                    remove_card="Shock",
+                    remove_quantity=4,
+                    add_card="Lightning Bolt",
+                    add_quantity=4,
+                    reason="better removal",
+                    remove_card_text="Shock deals 2 damage to any target.",
+                    add_card_text="Lightning Bolt deals 3 damage to any target.",
+                )
+            ],
+        )
+
+        formatted = format_deck_analysis(analysis)
+
+        assert "Shock deals 2 damage" in formatted
+        assert "Lightning Bolt deals 3 damage" in formatted
+
+    def test_includes_card_reference(self) -> None:
+        """Includes card reference section with oracle text."""
+        analysis = DeckAnalysis(
+            original_cards={},
+            total_cards=60,
+            colors={"R"},
+            creature_count=20,
+            spell_count=16,
+            land_count=24,
+            card_details=[
+                CardDetails(
+                    name="Goblin Guide",
+                    quantity=4,
+                    type_line="Creature — Goblin Scout",
+                    oracle_text="Haste. Whenever Goblin Guide attacks, defending player reveals.",
+                )
+            ],
+        )
+
+        formatted = format_deck_analysis(analysis)
+
+        assert "Card Reference" in formatted
+        assert "Goblin Guide" in formatted
+        assert "Creature — Goblin Scout" in formatted
+        assert "Haste" in formatted
