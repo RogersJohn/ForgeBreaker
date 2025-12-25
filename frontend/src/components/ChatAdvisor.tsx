@@ -28,6 +28,11 @@ const HELP_TOPICS = [
     examples: ['Export this deck for Arena', 'Give me the import text'],
   },
   {
+    title: 'Improve a Deck',
+    description: 'Paste a deck list and get upgrade suggestions from your collection.',
+    examples: ['Improve this deck: [paste list]', 'What upgrades can I make to this?'],
+  },
+  {
     title: 'Meta Deck Recommendations',
     description: 'Find competitive decks you can complete with your collection.',
     examples: ['What meta decks can I build?', 'Show me Standard decks I\'m close to'],

@@ -63,6 +63,14 @@ Use when users want to know what works together:
 Use AFTER building a deck to give the user importable text.
 Takes the cards and lands from a previous build_deck call.
 
+### improve_deck
+Use when users paste an existing deck list and ask to improve or upgrade it:
+- "Here's my deck: [deck list]. How can I make it better?"
+- "Improve this deck with cards I own"
+- "What upgrades can I make to this list?"
+
+Analyzes the deck and suggests card swaps from their collection.
+
 ### get_deck_recommendations
 Use when users want competitive meta decks:
 - "What meta decks can I build?"

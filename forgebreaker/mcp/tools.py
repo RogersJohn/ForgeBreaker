@@ -36,6 +36,10 @@ from forgebreaker.services.deck_builder import (
     export_deck_to_arena,
     format_built_deck,
 )
+from forgebreaker.services.deck_improver import (
+    analyze_and_improve_deck,
+    format_deck_analysis,
+)
 from forgebreaker.services.synergy_finder import (
     find_synergies,
     format_synergy_results,
@@ -321,6 +325,36 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["cards", "lands"],
+        },
+    ),
+    ToolDefinition(
+        name="improve_deck",
+        description=(
+            "Analyze an existing deck list and suggest improvements from the user's collection. "
+            "Use when a user pastes a deck list and asks to improve, upgrade, or optimize it. "
+            "Returns card swap suggestions, deck analysis, and general advice."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID",
+                },
+                "deck_text": {
+                    "type": "string",
+                    "description": (
+                        "The deck list in Arena format. "
+                        "Example: '4 Lightning Bolt (STA) 42\\n20 Mountain (FDN) 279'"
+                    ),
+                },
+                "max_suggestions": {
+                    "type": "integer",
+                    "description": "Maximum number of card swap suggestions to return",
+                    "default": 5,
+                },
+            },
+            "required": ["user_id", "deck_text"],
         },
     ),
 ]
@@ -718,6 +752,66 @@ async def export_to_arena_tool(
     }
 
 
+async def improve_deck_tool(
+    session: AsyncSession,
+    user_id: str,
+    deck_text: str,
+    card_db: dict[str, dict[str, Any]],
+    max_suggestions: int = 5,
+) -> dict[str, Any]:
+    """
+    Analyze a deck and suggest improvements from user's collection.
+
+    Args:
+        session: Database session
+        user_id: User's ID
+        deck_text: Arena-format deck list
+        card_db: Card database from Scryfall
+        max_suggestions: Maximum suggestions to return
+
+    Returns:
+        Dict with analysis and suggestions
+    """
+    db_collection = await get_collection(session, user_id)
+
+    if db_collection is None:
+        return {
+            "success": False,
+            "message": "No collection found. Import your collection first.",
+        }
+
+    collection = collection_to_model(db_collection)
+
+    analysis = analyze_and_improve_deck(
+        deck_text=deck_text,
+        collection=collection,
+        card_db=card_db,
+        max_suggestions=max_suggestions,
+    )
+
+    formatted = format_deck_analysis(analysis)
+
+    return {
+        "success": True,
+        "total_cards": analysis.total_cards,
+        "colors": list(analysis.colors),
+        "creature_count": analysis.creature_count,
+        "spell_count": analysis.spell_count,
+        "land_count": analysis.land_count,
+        "suggestions": [
+            {
+                "remove": f"{s.remove_quantity}x {s.remove_card}",
+                "add": f"{s.add_quantity}x {s.add_card}",
+                "reason": s.reason,
+            }
+            for s in analysis.suggestions
+        ],
+        "general_advice": analysis.general_advice,
+        "warnings": analysis.warnings,
+        "formatted": formatted,
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -804,6 +898,15 @@ async def execute_tool(
             lands=arguments["lands"],
             card_db=card_db,
             deck_name=arguments.get("deck_name", "Deck"),
+        )
+    elif tool_name == "improve_deck":
+        card_db = _get_card_db_safe()
+        return await improve_deck_tool(
+            session,
+            user_id=arguments["user_id"],
+            deck_text=arguments["deck_text"],
+            card_db=card_db,
+            max_suggestions=arguments.get("max_suggestions", 5),
         )
     else:
         raise ValueError(f"Unknown tool: {tool_name}")

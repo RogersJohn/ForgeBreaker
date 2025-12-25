@@ -16,6 +16,12 @@ from forgebreaker.services.deck_builder import (
     export_deck_to_arena,
     format_built_deck,
 )
+from forgebreaker.services.deck_improver import (
+    CardSuggestion,
+    DeckAnalysis,
+    analyze_and_improve_deck,
+    format_deck_analysis,
+)
 from forgebreaker.services.synergy_finder import (
     SynergyResult,
     find_synergies,
@@ -34,4 +40,8 @@ __all__ = [
     "SynergyResult",
     "find_synergies",
     "format_synergy_results",
+    "CardSuggestion",
+    "DeckAnalysis",
+    "analyze_and_improve_deck",
+    "format_deck_analysis",
 ]
