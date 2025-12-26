@@ -1,5 +1,46 @@
 @import "tailwindcss";
 
+:root {
+  /* Dark theme colors - MTG Arena inspired */
+  --color-bg-primary: #1a1a2e;
+  --color-bg-surface: #16213e;
+  --color-bg-elevated: #1f2a47;
+  --color-accent-primary: #e94560;
+  --color-accent-secondary: #0f3460;
+  --color-text-primary: #eaeaea;
+  --color-text-secondary: #a0a0a0;
+  --color-border: #2a2a4a;
+
+  /* WUBRG colors for stats */
+  --color-mana-w: #f9faf4;
+  --color-mana-u: #0e68ab;
+  --color-mana-b: #150b00;
+  --color-mana-r: #d3202a;
+  --color-mana-g: #00733e;
+  --color-mana-colorless: #6b6b6b;
+}
+
 body {
   min-height: 100vh;
+  background-color: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+/* Custom scrollbar for dark theme */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-accent-secondary);
 }
