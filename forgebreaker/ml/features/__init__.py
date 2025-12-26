@@ -1,7 +1,9 @@
-# Feature engineering for ML pipeline
+"""Feature engineering for ML-based deck recommendations.
 
-# Re-export existing features for backward compatibility
-# These are for deck recommendation (different from training features)
+Extracts numerical features from collections and decks for use with the
+MLForge recommendation model.
+"""
+
 from dataclasses import dataclass, field
 
 from forgebreaker.models.collection import Collection
