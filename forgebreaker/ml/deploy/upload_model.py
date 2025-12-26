@@ -55,7 +55,8 @@ async def upload_model(
                 f"Failed to upload model: HTTP {response.status_code} - {response.text}"
             )
 
-        return response.json()
+        result: dict[str, Any] = response.json()
+        return result
 
 
 async def register_model(
@@ -92,7 +93,8 @@ async def register_model(
                 f"Failed to register model: HTTP {response.status_code} - {response.text}"
             )
 
-        return response.json()
+        result: dict[str, Any] = response.json()
+        return result
 
 
 async def deploy_model(
