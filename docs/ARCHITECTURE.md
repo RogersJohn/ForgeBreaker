@@ -70,9 +70,9 @@ ForgeBreaker is a 3-repository system for MTG Arena deck recommendations:
 | Module | Endpoints | Purpose |
 |--------|-----------|---------|
 | `chat.py` | `POST /chat/` | Claude AI chat with MCP tools |
-| `collection.py` | `POST /collection/import` | Import Arena collection |
-| `decks.py` | `GET /decks/recommendations` | Get deck recommendations |
-| `distance.py` | `GET /distance/{deck}` | Calculate collection-to-deck distance |
+| `collection.py` | `POST /collection/{user_id}/import` | Import Arena collection |
+| `decks.py` | `GET /decks/{format}`, `POST /decks/sync` | Get meta decks, sync from MTGGoldfish |
+| `distance.py` | `GET /distance/{user_id}/{format}/{deck}` | Calculate collection-to-deck distance |
 | `health.py` | `GET /health` | Health check |
 
 ### Services Layer (`forgebreaker/services/`)
@@ -299,7 +299,7 @@ Railway Project
      |
      +---> ForgeBreaker Service
      |          |
-     |          +---> Dockerfile (Python 3.11)
+     |          +---> Nixpacks (Python 3.11)
      |          +---> PostgreSQL (Railway addon)
      |
      +---> Frontend Service
