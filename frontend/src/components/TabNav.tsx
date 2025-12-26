@@ -18,10 +18,18 @@ interface TabNavProps {
 
 export function TabNav({ activeTab, onTabChange }: TabNavProps) {
   return (
-    <nav className="flex gap-1 p-1 rounded-lg" style={{ backgroundColor: 'var(--color-bg-surface)' }}>
+    <nav
+      role="tablist"
+      aria-label="Main navigation"
+      className="flex gap-1 p-1 rounded-lg"
+      style={{ backgroundColor: 'var(--color-bg-surface)' }}
+    >
       {TABS.map((tab) => (
         <button
           key={tab.id}
+          role="tab"
+          aria-selected={activeTab === tab.id}
+          aria-controls={`${tab.id}-panel`}
           onClick={() => onTabChange(tab.id)}
           className={`
             px-6 py-2 rounded-md font-medium transition-colors

@@ -16,6 +16,14 @@ function App() {
   const [selectedDeck, setSelectedDeck] = useState<DeckResponse | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('chat')
 
+  const handleTabChange = (tab: TabId) => {
+    setActiveTab(tab)
+    // Clear deck selection when leaving meta tab
+    if (tab !== 'meta') {
+      setSelectedDeck(null)
+    }
+  }
+
   const { data: health, isLoading, error } = useQuery({
     queryKey: ['health'],
     queryFn: () => apiClient.checkHealth(),
@@ -50,7 +58,7 @@ function App() {
 
             {userId && (
               <div className="flex items-center gap-4">
-                <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+                <TabNav activeTab={activeTab} onTabChange={handleTabChange} />
                 <div
                   className="flex items-center gap-3 px-4 py-2 rounded-lg"
                   style={{ backgroundColor: 'var(--color-bg-elevated)' }}
@@ -113,7 +121,7 @@ function App() {
                 value={userIdInput}
                 onChange={(e) => setUserIdInput(e.target.value)}
                 placeholder="Enter your username"
-                className="flex-1 px-4 py-2 rounded-lg focus:outline-none focus:ring-2"
+                className="flex-1 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#e94560]"
                 style={{
                   backgroundColor: 'var(--color-bg-elevated)',
                   border: '1px solid var(--color-border)',
