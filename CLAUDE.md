@@ -1,234 +1,293 @@
-# ForgeBreaker - Claude Code Guidelines
+# CLAUDE.md - ForgeBreaker
+
+## Interaction Style
+
+- Be direct and critical. No sycophancy, no "great question!" or "impressive work!"
+- Point out flaws, inefficiencies, and problems directly
+- If something is mediocre, say so
+- Honest technical assessment over politeness
 
 ## Project Context
 
-MTG Arena collection manager that suggests decks based on owned cards.
+ForgeBreaker is an MTG Arena deck assistant with ML-powered predictions and Claude AI chat. It's the **specialized application** in a 3-repo system:
 
-- **Backend**: Python 3.11+ / FastAPI
-- **Frontend**: React 18 / TypeScript / Tailwind
-- **Database**: PostgreSQL
-- **ML**: Calls MLForge API (already deployed)
-- **LLM**: Claude API via MCP tool patterns
-- **Deployment**: Railway
-- **Repo**: github.com/JohnRogers-Code-projects/ForgeBreaker
+- **ForgeBreaker** (this repo): All MTG-specific code—training pipeline, 17Lands data, card data, user-facing app
+- **MLForge**: Generic ONNX model serving platform (receives trained models from here)
+- **MCP-Demo**: Generic REST-to-MCP gateway (registers MLForge as a tool)
 
----
+ForgeBreaker is the only repo that knows about MTG. The other two are generic infrastructure.
 
-## Workflow Rules
+## Critical Rules
 
-### PR Requirements
+1. **TEST-DRIVEN DEVELOPMENT**: Write failing tests first, then implement
+2. **SMALL WORK ITEMS**: 1-3 files, <100 lines each, reviewable in Copilot
+3. **DO NOT MODIFY RAILWAY CONFIGS**: Never touch `railway.toml`, `railway.json`, `Procfile` unless explicitly approved
+4. **NO NETWORK CALLS IN TESTS**: Mock all HTTP requests
+5. **AI ASSISTANCE IS ACKNOWLEDGED**: We own that Claude helps write code
 
-- **Max 300 lines changed** (excluding tests)
-- **Single logical component** per PR
-- **Tests included** in same PR
-- **All checks must pass** before requesting review
+## Current Sprint: ML Pipeline (Days 1-4)
 
-### What Claude Does Automatically
+### Work Item 1: 17Lands Data Downloader
 
-- Create feature branches
-- Write code and tests
-- Commit with conventional commit messages
-- Push branches
-- Create draft PRs
-- Request Copilot review
-- Fetch and summarize Copilot feedback
-- Fix blocking issues and re-request review
+**Location**: `forgebreaker/ml/data/download_17lands.py`
+**Tests**: `tests/ml/test_download_17lands.py`
 
-### What Requires Human Approval
+Download 17Lands public datasets from S3 (no scraping, no rate limits).
 
-- Merging PRs
-- Marking PRs as ready (non-draft)
-- Architectural changes not in spec
-- Adding unplanned dependencies
-
-### After Each PR
-
-1. Create draft PR
-2. Request Copilot review
-3. Summarize review for human
-4. Wait for human to approve merge
-5. After merge confirmed, proceed to next PR
-
----
-
-## Code Standards
-
-### No Sycophancy
-
-Don't praise code. "Done" or "This works" is sufficient.
-
-### Architecture First
-
-Before implementing, state:
-- Problem being solved
-- Approach chosen
-- Tradeoffs accepted
-
-### Code Quality Flags
-
+**Test cases (write first):**
 ```python
-# DEBT: <description> - <suggested fix>
-# PERF: <concern> - <impact>
-# SECURITY: <concern> - <severity: LOW/MED/HIGH>
-# TODO: <task>
+# URL construction
+test_constructs_premier_draft_url  # https://17lands-public.s3.amazonaws.com/analysis_data/game_data/game_data_public.{SET}.{EVENT}.csv.gz
+test_set_code_is_uppercased
+test_invalid_event_type_raises  # Only: PremierDraft, TradDraft, QuickDraft, Sealed
+
+# File paths
+test_generates_path_in_data_directory
+test_filename_includes_set_and_event
+
+# Download behavior (mock httpx)
+test_downloads_to_correct_path
+test_skips_download_if_file_exists
+test_raises_on_http_error
+
+# Batch operations
+test_downloads_multiple_sets
+test_continues_on_single_failure
 ```
 
-### Function Limits
-
-- Max 50 lines per function
-- Max 3 levels of nesting
-- Max 300 lines per file
-
-### Required Comments
-
-Inline comments mandatory for:
-- Regex patterns (explain what they match)
-- SQL with joins
-- O(n²)+ algorithms
-- Bitwise operations
-
-### Testing Standards
-
-- At least one edge case per function
-- Include failure cases
-- Use real MTG card names in test data
-- Tests must be fast (<100ms each)
+**Implementation requirements:**
+- Use `httpx` for HTTP
+- Stream large files with `iter_bytes()`
+- Custom `DownloadError` exception
+- CLI entrypoint: `python -m forgebreaker.ml.data.download_17lands --sets BLB OTJ MKM`
 
 ---
 
-## Dependencies
+### Work Item 2: Data Loading & Schema Validation
 
-### Pre-Approved (no justification needed)
+**Location**: `forgebreaker/ml/data/loader.py`
+**Tests**: `tests/ml/test_loader.py`
 
-**Backend:**
-- fastapi, uvicorn[standard], pydantic, pydantic-settings
-- httpx, sqlalchemy[asyncio], asyncpg, alembic
-- pytest, pytest-asyncio, pytest-cov
-- ruff, mypy
+**Test cases:**
+```python
+test_loads_gzipped_csv
+test_returns_dataframe
+test_validates_required_columns
+test_expected_columns_present  # expansion, event_type, draft_id, won, on_play, num_mulligans, user_game_win_rate_bucket, deck_*
+test_filters_to_single_set
+test_combines_multiple_files
+```
 
-**Frontend:**
-- react, react-dom, typescript
-- tailwindcss, @tailwindcss/forms
-- @tanstack/react-query
-- vite
-
-**Tools:**
-- gh (GitHub CLI)
-
-### Requires Justification
-
-Any dependency not listed above.
+**Required columns:**
+```python
+REQUIRED_COLUMNS = [
+    'expansion', 'event_type', 'draft_id', 'game_time',
+    'won', 'on_play', 'num_mulligans', 'user_game_win_rate_bucket'
+]
+# Plus deck_* columns (card counts)
+```
 
 ---
 
-## File Structure
+### Work Item 3: Card Data from Scryfall
+
+**Location**: `forgebreaker/ml/data/card_data.py`
+**Tests**: `tests/ml/test_card_data.py`
+
+Fetch card metadata (types, mana values) for feature engineering.
+
+**Test cases:**
+```python
+test_fetches_set_cards  # Mock Scryfall API
+test_caches_card_data  # Don't re-fetch
+test_extracts_card_type  # creature, instant, sorcery, etc.
+test_extracts_mana_value
+test_extracts_colors
+test_handles_missing_cards_gracefully
+```
+
+**Rate limiting:** Scryfall allows 10 requests/second. Add delays between bulk requests.
+
+---
+
+### Work Item 4: Feature Engineering
+
+**Location**: `forgebreaker/ml/features/engineer.py`
+**Tests**: `tests/ml/test_features.py`
+
+**Test cases:**
+```python
+test_extracts_deck_card_columns
+test_counts_total_cards
+test_counts_creatures_lands_spells  # Uses card_data
+test_calculates_average_mana_value  # Uses card_data
+test_extracts_color_pair
+test_preserves_game_context_features  # on_play, num_mulligans, user_win_rate
+test_creates_target_column  # Binary 'won'
+test_output_is_numeric
+```
+
+**Feature set:**
+```python
+FEATURES = [
+    # Deck composition
+    'n_cards_in_deck', 'n_creatures', 'n_lands', 'n_noncreature_spells',
+    'avg_mana_value',
+    'curve_1_drop', 'curve_2_drop', 'curve_3_drop', 'curve_4_drop', 'curve_5plus_drop',
+    
+    # Colors (one-hot)
+    'color_W', 'color_U', 'color_B', 'color_R', 'color_G',
+    
+    # Game context
+    'on_play', 'num_mulligans', 'user_skill_bucket',
+]
+TARGET = 'won'
+```
+
+---
+
+### Work Item 5: Model Training
+
+**Location**: `forgebreaker/ml/training/train.py`
+**Tests**: `tests/ml/test_training.py`
+
+**Test cases:**
+```python
+test_splits_data_correctly  # No leakage by draft_id
+test_trains_xgboost_model
+test_evaluates_on_holdout  # Returns accuracy, AUC
+test_exports_to_onnx
+test_onnx_produces_same_predictions
+test_saves_feature_names
+test_generates_model_card
+```
+
+**Config:**
+```python
+MODEL_CONFIG = {
+    'n_estimators': 100,
+    'max_depth': 6,
+    'learning_rate': 0.1,
+    'random_state': 42,
+}
+TRAIN_RATIO, VAL_RATIO, TEST_RATIO = 0.7, 0.15, 0.15
+```
+
+**Outputs:**
+- `models/deck_winrate_predictor.onnx`
+- `models/model_metadata.json`
+- `docs/MODEL_CARD.md`
+
+---
+
+### Work Item 6: Upload Model to MLForge
+
+**Location**: `forgebreaker/ml/deploy/upload_model.py`
+**Tests**: `tests/ml/test_upload_model.py`
+
+Script to upload trained ONNX model to MLForge API.
+
+**Test cases:**
+```python
+test_uploads_onnx_file  # Mock MLForge API
+test_registers_model_metadata
+test_handles_upload_failure
+```
+
+---
+
+## File Structure After Sprint
 
 ```
 forgebreaker/
-├── __init__.py
-├── main.py              # FastAPI app entry
-├── config.py            # Settings via pydantic-settings
-├── models/
-│   ├── __init__.py
-│   ├── card.py          # Card dataclass
-│   ├── collection.py    # Collection dataclass
-│   ├── deck.py          # MetaDeck, DeckDistance, RankedDeck
-│   └── db.py            # SQLAlchemy models
-├── parsers/
-│   ├── __init__.py
-│   ├── arena_export.py  # Parse Arena text export
-│   └── scryfall.py      # Load Scryfall bulk data
-├── scrapers/
-│   ├── __init__.py
-│   └── mtggoldfish.py   # Scrape meta decks
-├── analysis/
-│   ├── __init__.py
-│   ├── distance.py      # Deck distance calculation
-│   └── ranker.py        # Deck ranking algorithm
 ├── ml/
 │   ├── __init__.py
-│   ├── features.py      # Feature engineering
-│   └── inference.py     # MLForge client
-├── mcp/
-│   ├── __init__.py
-│   └── tools.py         # MCP tool definitions
-├── api/
-│   ├── __init__.py
-│   ├── collection.py    # Collection endpoints
-│   ├── decks.py         # Deck endpoints
-│   └── chat.py          # Chat endpoint
-├── db/
-│   ├── __init__.py
-│   ├── database.py      # Engine, session
-│   └── operations.py    # CRUD operations
-└── jobs/
-    ├── __init__.py
-    └── update_meta.py   # Scheduled meta refresh
-
-frontend/
-├── src/
-│   ├── main.tsx
-│   ├── App.tsx
-│   ├── api/
-│   │   └── client.ts    # API client
-│   ├── components/
-│   │   ├── CollectionImporter.tsx
-│   │   ├── DeckBrowser.tsx
-│   │   ├── DeckCard.tsx
-│   │   ├── DeckDetail.tsx
-│   │   └── ChatAdvisor.tsx
-│   └── hooks/
-│       └── useCollection.ts
-├── index.html
-├── package.json
-├── tsconfig.json
-├── tailwind.config.js
-└── vite.config.ts
-
-tests/
-├── conftest.py
-├── test_models.py
-├── test_parsers.py
-├── test_analysis.py
-├── test_api.py
-└── fixtures/
-    ├── sample_collection.txt
-    └── sample_decks.json
+│   ├── data/
+│   │   ├── __init__.py
+│   │   ├── download_17lands.py
+│   │   ├── loader.py
+│   │   └── card_data.py
+│   ├── features/
+│   │   ├── __init__.py
+│   │   └── engineer.py
+│   ├── training/
+│   │   ├── __init__.py
+│   │   └── train.py
+│   └── deploy/
+│       ├── __init__.py
+│       └── upload_model.py
+├── models/
+│   ├── deck_winrate_predictor.onnx
+│   └── model_metadata.json
+├── data/
+│   └── raw/  # Downloaded 17Lands CSVs (gitignored)
+└── tests/
+    └── ml/
+        ├── test_download_17lands.py
+        ├── test_loader.py
+        ├── test_card_data.py
+        ├── test_features.py
+        ├── test_training.py
+        └── test_upload_model.py
 ```
 
 ---
 
-## Git Conventions
+## Commands
 
-### Branch Names
+```bash
+# Run ML tests
+pytest tests/ml/ -v
 
-```
-feature/<pr-number>-<component>
-fix/<pr-number>-<description>
-```
+# Run with coverage
+pytest tests/ml/ -v --cov=forgebreaker/ml --cov-report=term-missing
 
-### Commit Messages
+# Download training data
+python -m forgebreaker.ml.data.download_17lands --sets BLB OTJ MKM --data-dir data/raw
 
-```
-<type>(<scope>): <description>
+# Train model
+python -m forgebreaker.ml.training.train --data-dir data/raw --output-dir models
 
-Types: feat, fix, refactor, test, docs, chore
-Scope: models, parser, api, frontend, ml, db
-```
-
-### PR Title Format
-
-```
-<type>(<scope>): <description>
+# Upload to MLForge
+python -m forgebreaker.ml.deploy.upload_model --model models/deck_winrate_predictor.onnx --url $MLFORGE_URL
 ```
 
 ---
 
-## Current State
+## Dependencies to Add
 
-<!-- Updated after each PR -->
+```
+# pyproject.toml [project.optional-dependencies] or requirements.txt
+pandas>=2.0.0
+xgboost>=2.0.0
+scikit-learn>=1.3.0
+skl2onnx>=1.16.0
+onnxruntime>=1.16.0
+httpx>=0.25.0
+```
 
-Last PR Merged: #24 deployment
-Current PR: #25 docs
-Next PR: None (all PRs complete)
-Blockers: None
+---
+
+## PR Workflow
+
+1. Branch: `git checkout -b feat/ml-download-17lands`
+2. Tests first: `git commit -m "test: add 17lands downloader tests"`
+3. Implementation: `git commit -m "feat: implement 17lands downloader"`
+4. Push, PR, Copilot review
+5. Merge, next work item
+
+---
+
+## Quality Checks
+
+- [ ] All new tests pass
+- [ ] Existing tests still pass
+- [ ] No railway config changes
+- [ ] Type hints on public functions
+- [ ] Docstrings on public functions
+
+---
+
+## AI Assistance
+
+This project is built with Claude as an AI pair programmer. John Rogers provides architecture, direction, and review. Claude assists with implementation. This is explicitly acknowledged—not hidden.
