@@ -311,11 +311,16 @@ class TestFormatSearchResults:
                 colors=["R"],
                 type_line="Instant",
                 mana_cost="{R}",
+                cmc=1,
+                oracle_text="Lightning Bolt deals 3 damage to any target.",
+                keywords=[],
+                power=None,
+                toughness=None,
             )
         ]
 
         formatted = format_search_results(results)
-        assert "Found 1 card" in formatted
+        assert "Found 4 cards (1 unique)" in formatted
         assert "4x Lightning Bolt" in formatted
         assert "(R)" in formatted  # Color
 
@@ -329,6 +334,11 @@ class TestFormatSearchResults:
                 colors=[],
                 type_line="Artifact",
                 mana_cost="{1}",
+                cmc=1,
+                oracle_text="{T}: Add {C}{C}.",
+                keywords=[],
+                power=None,
+                toughness=None,
             )
         ]
 
@@ -529,6 +539,478 @@ class TestEmptyCardDatabase:
             search_collection(sample_collection, {})
 
         assert "Card database is empty" in caplog.text
+
+
+class TestCMCFiltering:
+    """Tests for mana value (CMC) filtering."""
+
+    @pytest.fixture
+    def cmc_card_db(self) -> dict[str, dict]:
+        return {
+            "Lightning Bolt": {
+                "type_line": "Instant",
+                "colors": ["R"],
+                "color_identity": ["R"],
+                "cmc": 1,
+                "set": "LEB",
+                "rarity": "common",
+            },
+            "Counterspell": {
+                "type_line": "Instant",
+                "colors": ["U"],
+                "color_identity": ["U"],
+                "cmc": 2,
+                "set": "LEB",
+                "rarity": "uncommon",
+            },
+            "Murder": {
+                "type_line": "Instant",
+                "colors": ["B"],
+                "color_identity": ["B"],
+                "cmc": 3,
+                "set": "M21",
+                "rarity": "common",
+            },
+            "Wrath of God": {
+                "type_line": "Sorcery",
+                "colors": ["W"],
+                "color_identity": ["W"],
+                "cmc": 4,
+                "set": "M21",
+                "rarity": "rare",
+            },
+            "Niv-Mizzet, Parun": {
+                "type_line": "Legendary Creature — Dragon Wizard",
+                "colors": ["U", "R"],
+                "color_identity": ["U", "R"],
+                "cmc": 6,
+                "set": "GRN",
+                "rarity": "rare",
+            },
+        }
+
+    @pytest.fixture
+    def cmc_collection(self) -> Collection:
+        return Collection(
+            cards={
+                "Lightning Bolt": 4,
+                "Counterspell": 4,
+                "Murder": 2,
+                "Wrath of God": 2,
+                "Niv-Mizzet, Parun": 1,
+            }
+        )
+
+    def test_exact_cmc(self, cmc_collection: Collection, cmc_card_db: dict) -> None:
+        """Filter by exact mana value."""
+        results = search_collection(cmc_collection, cmc_card_db, cmc=1)
+        assert len(results) == 1
+        assert results[0].name == "Lightning Bolt"
+
+    def test_cmc_min(self, cmc_collection: Collection, cmc_card_db: dict) -> None:
+        """Filter by minimum mana value."""
+        results = search_collection(cmc_collection, cmc_card_db, cmc_min=4)
+        names = {r.name for r in results}
+        assert names == {"Wrath of God", "Niv-Mizzet, Parun"}
+
+    def test_cmc_max(self, cmc_collection: Collection, cmc_card_db: dict) -> None:
+        """Filter by maximum mana value."""
+        results = search_collection(cmc_collection, cmc_card_db, cmc_max=2)
+        names = {r.name for r in results}
+        assert names == {"Lightning Bolt", "Counterspell"}
+
+    def test_cmc_range(self, cmc_collection: Collection, cmc_card_db: dict) -> None:
+        """Filter by mana value range."""
+        results = search_collection(cmc_collection, cmc_card_db, cmc_min=2, cmc_max=4)
+        names = {r.name for r in results}
+        assert names == {"Counterspell", "Murder", "Wrath of God"}
+
+
+class TestKeywordFiltering:
+    """Tests for keyword ability filtering."""
+
+    @pytest.fixture
+    def keyword_card_db(self) -> dict[str, dict]:
+        return {
+            "Serra Angel": {
+                "type_line": "Creature — Angel",
+                "colors": ["W"],
+                "color_identity": ["W"],
+                "cmc": 5,
+                "keywords": ["Flying", "Vigilance"],
+                "power": "4",
+                "toughness": "4",
+                "set": "DMR",
+                "rarity": "uncommon",
+            },
+            "Vampire Nighthawk": {
+                "type_line": "Creature — Vampire Shaman",
+                "colors": ["B"],
+                "color_identity": ["B"],
+                "cmc": 3,
+                "keywords": ["Flying", "Deathtouch", "Lifelink"],
+                "power": "2",
+                "toughness": "3",
+                "set": "M21",
+                "rarity": "uncommon",
+            },
+            "Questing Beast": {
+                "type_line": "Legendary Creature — Beast",
+                "colors": ["G"],
+                "color_identity": ["G"],
+                "cmc": 4,
+                "keywords": ["Vigilance", "Deathtouch", "Haste"],
+                "power": "4",
+                "toughness": "4",
+                "set": "ELD",
+                "rarity": "mythic",
+            },
+            "Grizzly Bears": {
+                "type_line": "Creature — Bear",
+                "colors": ["G"],
+                "color_identity": ["G"],
+                "cmc": 2,
+                "keywords": [],
+                "power": "2",
+                "toughness": "2",
+                "set": "M10",
+                "rarity": "common",
+            },
+        }
+
+    @pytest.fixture
+    def keyword_collection(self) -> Collection:
+        return Collection(
+            cards={
+                "Serra Angel": 2,
+                "Vampire Nighthawk": 4,
+                "Questing Beast": 1,
+                "Grizzly Bears": 4,
+            }
+        )
+
+    def test_single_keyword(self, keyword_collection: Collection, keyword_card_db: dict) -> None:
+        """Filter by single keyword."""
+        results = search_collection(keyword_collection, keyword_card_db, keywords=["Flying"])
+        names = {r.name for r in results}
+        assert names == {"Serra Angel", "Vampire Nighthawk"}
+
+    def test_multiple_keywords_and(
+        self, keyword_collection: Collection, keyword_card_db: dict
+    ) -> None:
+        """Filter by multiple keywords - card must have ALL."""
+        results = search_collection(
+            keyword_collection, keyword_card_db, keywords=["Flying", "Lifelink"]
+        )
+        assert len(results) == 1
+        assert results[0].name == "Vampire Nighthawk"
+
+    def test_keyword_case_insensitive(
+        self, keyword_collection: Collection, keyword_card_db: dict
+    ) -> None:
+        """Keyword matching should be case-insensitive."""
+        results = search_collection(keyword_collection, keyword_card_db, keywords=["flying"])
+        assert len(results) == 2
+
+    def test_no_matching_keyword(
+        self, keyword_collection: Collection, keyword_card_db: dict
+    ) -> None:
+        """No cards with nonexistent keyword."""
+        results = search_collection(keyword_collection, keyword_card_db, keywords=["Trample"])
+        assert len(results) == 0
+
+
+class TestOracleTextSearch:
+    """Tests for oracle/rules text searching."""
+
+    @pytest.fixture
+    def oracle_card_db(self) -> dict[str, dict]:
+        return {
+            "Lightning Bolt": {
+                "type_line": "Instant",
+                "colors": ["R"],
+                "color_identity": ["R"],
+                "cmc": 1,
+                "oracle_text": "Lightning Bolt deals 3 damage to any target.",
+                "set": "LEB",
+                "rarity": "common",
+            },
+            "Divination": {
+                "type_line": "Sorcery",
+                "colors": ["U"],
+                "color_identity": ["U"],
+                "cmc": 3,
+                "oracle_text": "Draw two cards.",
+                "set": "M21",
+                "rarity": "common",
+            },
+            "Murder": {
+                "type_line": "Instant",
+                "colors": ["B"],
+                "color_identity": ["B"],
+                "cmc": 3,
+                "oracle_text": "Destroy target creature.",
+                "set": "M21",
+                "rarity": "common",
+            },
+            "Hero's Downfall": {
+                "type_line": "Instant",
+                "colors": ["B"],
+                "color_identity": ["B"],
+                "cmc": 3,
+                "oracle_text": "Destroy target creature or planeswalker.",
+                "set": "THS",
+                "rarity": "rare",
+            },
+        }
+
+    @pytest.fixture
+    def oracle_collection(self) -> Collection:
+        return Collection(
+            cards={
+                "Lightning Bolt": 4,
+                "Divination": 2,
+                "Murder": 4,
+                "Hero's Downfall": 2,
+            }
+        )
+
+    def test_oracle_text_simple(self, oracle_collection: Collection, oracle_card_db: dict) -> None:
+        """Search for cards with specific text."""
+        results = search_collection(oracle_collection, oracle_card_db, oracle_text="draw")
+        assert len(results) == 1
+        assert results[0].name == "Divination"
+
+    def test_oracle_text_destroy(self, oracle_collection: Collection, oracle_card_db: dict) -> None:
+        """Search for cards that destroy things."""
+        results = search_collection(oracle_collection, oracle_card_db, oracle_text="destroy target")
+        names = {r.name for r in results}
+        assert names == {"Murder", "Hero's Downfall"}
+
+    def test_oracle_text_case_insensitive(
+        self, oracle_collection: Collection, oracle_card_db: dict
+    ) -> None:
+        """Oracle text search should be case-insensitive."""
+        results = search_collection(oracle_collection, oracle_card_db, oracle_text="DAMAGE")
+        assert len(results) == 1
+        assert results[0].name == "Lightning Bolt"
+
+
+class TestMonoColorFiltering:
+    """Tests for exact/mono-color filtering."""
+
+    @pytest.fixture
+    def color_card_db(self) -> dict[str, dict]:
+        return {
+            "Lightning Bolt": {
+                "type_line": "Instant",
+                "colors": ["R"],
+                "color_identity": ["R"],
+                "set": "LEB",
+                "rarity": "common",
+            },
+            "Goblin Guide": {
+                "type_line": "Creature — Goblin Scout",
+                "colors": ["R"],
+                "color_identity": ["R"],
+                "set": "ZEN",
+                "rarity": "rare",
+            },
+            "Rakdos Cackler": {
+                "type_line": "Creature — Devil",
+                "colors": ["R"],
+                "color_identity": ["B", "R"],
+                "set": "RTR",
+                "rarity": "uncommon",
+            },
+            "Graven Cairns": {
+                "type_line": "Land",
+                "colors": [],
+                "color_identity": ["B", "R"],
+                "set": "SHM",
+                "rarity": "rare",
+            },
+        }
+
+    @pytest.fixture
+    def color_collection(self) -> Collection:
+        return Collection(
+            cards={
+                "Lightning Bolt": 4,
+                "Goblin Guide": 4,
+                "Rakdos Cackler": 4,
+                "Graven Cairns": 2,
+            }
+        )
+
+    def test_mono_red_exact(self, color_collection: Collection, color_card_db: dict) -> None:
+        """Filter for mono-red cards only (exactly R, nothing else)."""
+        results = search_collection(color_collection, color_card_db, colors=["R"], color_exact=True)
+        names = {r.name for r in results}
+        # Excludes Rakdos Cackler (BR) and Graven Cairns (BR)
+        assert names == {"Lightning Bolt", "Goblin Guide"}
+
+    def test_includes_red_default(self, color_collection: Collection, color_card_db: dict) -> None:
+        """Default color filter includes multi-color cards."""
+        results = search_collection(
+            color_collection, color_card_db, colors=["R"], color_exact=False
+        )
+        names = {r.name for r in results}
+        # Includes Rakdos Cackler and Graven Cairns (they have R in identity)
+        assert names == {"Lightning Bolt", "Goblin Guide", "Rakdos Cackler", "Graven Cairns"}
+
+
+class TestFormatLegalityFiltering:
+    """Tests for format legality filtering."""
+
+    @pytest.fixture
+    def format_card_db(self) -> dict[str, dict]:
+        return {
+            "Lightning Bolt": {
+                "type_line": "Instant",
+                "colors": ["R"],
+                "color_identity": ["R"],
+                "cmc": 1,
+                "legalities": {
+                    "standard": "not_legal",
+                    "historic": "legal",
+                    "modern": "legal",
+                    "legacy": "legal",
+                },
+                "set": "LEB",
+                "rarity": "common",
+            },
+            "Play with Fire": {
+                "type_line": "Instant",
+                "colors": ["R"],
+                "color_identity": ["R"],
+                "cmc": 1,
+                "legalities": {
+                    "standard": "legal",
+                    "historic": "legal",
+                    "modern": "legal",
+                    "legacy": "legal",
+                },
+                "set": "MID",
+                "rarity": "uncommon",
+            },
+            "Ancestral Recall": {
+                "type_line": "Instant",
+                "colors": ["U"],
+                "color_identity": ["U"],
+                "cmc": 1,
+                "legalities": {
+                    "standard": "not_legal",
+                    "historic": "not_legal",
+                    "modern": "not_legal",
+                    "legacy": "banned",
+                    "vintage": "restricted",
+                },
+                "set": "LEB",
+                "rarity": "rare",
+            },
+        }
+
+    @pytest.fixture
+    def format_collection(self) -> Collection:
+        return Collection(
+            cards={
+                "Lightning Bolt": 4,
+                "Play with Fire": 4,
+                "Ancestral Recall": 1,
+            }
+        )
+
+    def test_standard_legal(self, format_collection: Collection, format_card_db: dict) -> None:
+        """Filter for Standard-legal cards."""
+        results = search_collection(format_collection, format_card_db, format_legal="standard")
+        assert len(results) == 1
+        assert results[0].name == "Play with Fire"
+
+    def test_modern_legal(self, format_collection: Collection, format_card_db: dict) -> None:
+        """Filter for Modern-legal cards."""
+        results = search_collection(format_collection, format_card_db, format_legal="modern")
+        names = {r.name for r in results}
+        assert names == {"Lightning Bolt", "Play with Fire"}
+
+
+class TestPowerToughnessFiltering:
+    """Tests for creature power/toughness filtering."""
+
+    @pytest.fixture
+    def pt_card_db(self) -> dict[str, dict]:
+        return {
+            "Llanowar Elves": {
+                "type_line": "Creature — Elf Druid",
+                "colors": ["G"],
+                "color_identity": ["G"],
+                "cmc": 1,
+                "power": "1",
+                "toughness": "1",
+                "set": "M21",
+                "rarity": "common",
+            },
+            "Grizzly Bears": {
+                "type_line": "Creature — Bear",
+                "colors": ["G"],
+                "color_identity": ["G"],
+                "cmc": 2,
+                "power": "2",
+                "toughness": "2",
+                "set": "M10",
+                "rarity": "common",
+            },
+            "Gigantosaurus": {
+                "type_line": "Creature — Dinosaur",
+                "colors": ["G"],
+                "color_identity": ["G"],
+                "cmc": 5,
+                "power": "10",
+                "toughness": "10",
+                "set": "M19",
+                "rarity": "rare",
+            },
+            "Tarmogoyf": {
+                "type_line": "Creature — Lhurgoyf",
+                "colors": ["G"],
+                "color_identity": ["G"],
+                "cmc": 2,
+                "power": "*",
+                "toughness": "1+*",
+                "set": "FUT",
+                "rarity": "rare",
+            },
+        }
+
+    @pytest.fixture
+    def pt_collection(self) -> Collection:
+        return Collection(
+            cards={
+                "Llanowar Elves": 4,
+                "Grizzly Bears": 4,
+                "Gigantosaurus": 1,
+                "Tarmogoyf": 4,
+            }
+        )
+
+    def test_power_min(self, pt_collection: Collection, pt_card_db: dict) -> None:
+        """Filter by minimum power."""
+        results = search_collection(pt_collection, pt_card_db, power_min=5)
+        assert len(results) == 1
+        assert results[0].name == "Gigantosaurus"
+
+    def test_power_max(self, pt_collection: Collection, pt_card_db: dict) -> None:
+        """Filter by maximum power."""
+        results = search_collection(pt_collection, pt_card_db, power_max=1)
+        assert len(results) == 1
+        assert results[0].name == "Llanowar Elves"
+
+    def test_variable_power_excluded(self, pt_collection: Collection, pt_card_db: dict) -> None:
+        """Cards with variable power (*) are excluded from power filters."""
+        results = search_collection(pt_collection, pt_card_db, power_min=0)
+        names = {r.name for r in results}
+        # Tarmogoyf excluded (power is "*")
+        assert "Tarmogoyf" not in names
 
 
 class TestCardsNotInDatabase:
