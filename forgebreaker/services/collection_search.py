@@ -326,11 +326,7 @@ def format_search_results(
 
     for card in results:
         colors_str = "".join(card.colors) if card.colors else "C"
-        prefix = (
-            f"- {card.quantity}x {card.name}"
-            if include_quantities
-            else f"- {card.name}"
-        )
+        prefix = f"- {card.quantity}x {card.name}" if include_quantities else f"- {card.name}"
 
         line = f"{prefix} ({colors_str}) - {card.type_line}"
 
