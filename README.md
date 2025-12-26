@@ -2,16 +2,28 @@
 
 MTG Arena collection manager that suggests decks based on owned cards, using ML-powered recommendations.
 
+## Why ForgeBreaker?
+
+Building competitive decks in MTG Arena is frustrating:
+
+- **Wildcards are precious** - You don't want to spend rare wildcards on a deck you can't finish
+- **Meta decks require cards you don't own** - Most deck sites assume you have everything
+- **No visibility into what's buildable** - Arena doesn't show which meta decks match your collection
+
+ForgeBreaker solves this by analyzing your collection and ranking meta decks by how close you are to completing them. It uses ML-powered recommendations to surface decks you can actually build, not just what's theoretically best.
+
 ## Features
 
 - Import your Arena collection via text export
 - Browse competitive meta decks from MTGGoldfish
 - See how close you are to completing each deck
-- **ML-powered deck recommendations** blending collection analysis with MLForge scoring
+- **ML-powered deck recommendations** blending collection analysis with [MLForge scoring](docs/MODEL_CARD.md)
 - Get recommendations based on your wildcard budget
 - AI-powered deck advice via Claude with MCP tool calling
 
 ## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed system design.
 
 ForgeBreaker integrates with MLForge for ML-based deck recommendations:
 
@@ -79,8 +91,15 @@ ruff format --check .
 # Run type checking
 mypy forgebreaker
 
-# Run tests
+# Run tests (requires 70% coverage)
 pytest
+
+# Expected output:
+# ============================= test session starts ==============================
+# collected 422 items
+# ...
+# ============================= 422 passed in 45.23s ==============================
+# TOTAL                                                        83%
 
 # Start dev server
 uvicorn forgebreaker.main:app --reload
@@ -125,6 +144,109 @@ npm run build
 ### Chat
 
 - `POST /chat/` - Send chat message (body: `{"user_id": "...", "messages": [...]}`)
+
+## Example API Usage
+
+### Import a Collection
+
+```bash
+curl -X POST http://localhost:8000/collection/user123/import \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "4 Lightning Bolt\n4 Monastery Swiftspear\n20 Mountain",
+    "format": "auto"
+  }'
+```
+
+Response:
+```json
+{
+  "user_id": "user123",
+  "cards_imported": 3,
+  "total_cards": 28,
+  "cards": {
+    "Lightning Bolt": 4,
+    "Monastery Swiftspear": 4,
+    "Mountain": 20
+  }
+}
+```
+
+### Get Meta Decks
+
+```bash
+curl http://localhost:8000/decks/standard
+```
+
+Response (cards/sideboard truncated for brevity):
+```json
+{
+  "format": "standard",
+  "decks": [
+    {
+      "name": "Mono Red Aggro",
+      "archetype": "Aggro",
+      "format": "standard",
+      "cards": {"Monastery Swiftspear": 4, "Play with Fire": 4},
+      "sideboard": {"Roiling Vortex": 2},
+      "win_rate": 0.54,
+      "meta_share": 0.12,
+      "source_url": "https://mtggoldfish.com/..."
+    }
+  ],
+  "count": 1
+}
+```
+
+### Calculate Deck Distance
+
+```bash
+curl http://localhost:8000/distance/user123/standard/Mono%20Red%20Aggro
+```
+
+Response:
+```json
+{
+  "deck_name": "Mono Red Aggro",
+  "deck_format": "standard",
+  "owned_cards": 24,
+  "missing_cards": 16,
+  "total_cards": 40,
+  "completion_percentage": 0.6,
+  "is_complete": false,
+  "wildcard_cost": {
+    "common": 0,
+    "uncommon": 4,
+    "rare": 8,
+    "mythic": 4,
+    "total": 16
+  }
+}
+```
+
+### Chat with Claude
+
+```bash
+curl -X POST http://localhost:8000/chat/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "user_id": "user123",
+    "messages": [{"role": "user", "content": "What meta decks can I build?"}]
+  }'
+```
+
+Response:
+```json
+{
+  "message": {
+    "role": "assistant",
+    "content": "Based on your collection, here are the meta decks you're closest to completing..."
+  },
+  "tool_calls": [
+    {"name": "get_deck_recommendations", "input": {"format": "standard"}}
+  ]
+}
+```
 
 ## Environment Variables
 
