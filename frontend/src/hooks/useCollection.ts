@@ -11,6 +11,15 @@ export function useCollection(userId: string) {
   })
 }
 
+export function useCollectionStats(userId: string) {
+  return useQuery({
+    queryKey: ['collectionStats', userId],
+    queryFn: () => apiClient.getCollectionStats(userId),
+    enabled: !!userId,
+    retry: false,
+  })
+}
+
 interface ImportOptions {
   text: string
   format?: 'auto' | 'simple' | 'csv' | 'arena'
@@ -32,6 +41,8 @@ export function useImportCollection(userId: string) {
         cards: data.cards,
       }
       queryClient.setQueryData(['collection', userId], collection)
+      // Invalidate stats so they refresh with new data
+      queryClient.invalidateQueries({ queryKey: ['collectionStats', userId] })
     },
   })
 }
