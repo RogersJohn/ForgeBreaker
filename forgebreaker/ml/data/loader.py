@@ -4,10 +4,10 @@ Handles gzipped CSV files from 17Lands S3 bucket.
 Validates schema and provides filtering utilities.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 
 class SchemaValidationError(Exception):
@@ -17,16 +17,18 @@ class SchemaValidationError(Exception):
 
 
 # Required columns in 17Lands game data
-REQUIRED_COLUMNS = frozenset([
-    "expansion",
-    "event_type",
-    "draft_id",
-    "game_time",
-    "won",
-    "on_play",
-    "num_mulligans",
-    "user_game_win_rate_bucket",
-])
+REQUIRED_COLUMNS = frozenset(
+    [
+        "expansion",
+        "event_type",
+        "draft_id",
+        "game_time",
+        "won",
+        "on_play",
+        "num_mulligans",
+        "user_game_win_rate_bucket",
+    ]
+)
 
 
 def load_17lands_csv(file_path: Path) -> pd.DataFrame:
@@ -52,9 +54,7 @@ def validate_schema(df: pd.DataFrame) -> None:
     """
     missing = REQUIRED_COLUMNS - set(df.columns)
     if missing:
-        raise SchemaValidationError(
-            f"Missing required columns: {sorted(missing)}"
-        )
+        raise SchemaValidationError(f"Missing required columns: {sorted(missing)}")
 
 
 def get_deck_columns(df: pd.DataFrame) -> list[str]:
