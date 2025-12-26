@@ -6,6 +6,7 @@ import { ChatAdvisor } from './components/ChatAdvisor'
 import { CollectionImporter } from './components/CollectionImporter'
 import { DeckBrowser } from './components/DeckBrowser'
 import { DeckDetail } from './components/DeckDetail'
+import { TabNav, type TabId } from './components/TabNav'
 
 function App() {
   const [userId, setUserId] = useState(() => {
@@ -13,6 +14,7 @@ function App() {
   })
   const [userIdInput, setUserIdInput] = useState(userId)
   const [selectedDeck, setSelectedDeck] = useState<DeckResponse | null>(null)
+  const [activeTab, setActiveTab] = useState<TabId>('chat')
 
   const { data: health, isLoading, error } = useQuery({
     queryKey: ['health'],
@@ -29,89 +31,125 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-indigo-600 text-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          <h1 className="text-3xl font-bold">ForgeBreaker</h1>
-          <p className="text-indigo-200 mt-1">MTG Arena Deck Advisor</p>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--color-bg-primary)' }}>
+      <header
+        className="shadow-lg"
+        style={{ backgroundColor: 'var(--color-bg-surface)', borderBottom: '1px solid var(--color-border)' }}
+      >
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1
+                className="text-2xl font-bold"
+                style={{ color: 'var(--color-accent-primary)' }}
+              >
+                ForgeBreaker
+              </h1>
+              <p style={{ color: 'var(--color-text-secondary)' }}>MTG Arena Deck Advisor</p>
+            </div>
+
+            {userId && (
+              <div className="flex items-center gap-4">
+                <TabNav activeTab={activeTab} onTabChange={setActiveTab} />
+                <div
+                  className="flex items-center gap-3 px-4 py-2 rounded-lg"
+                  style={{ backgroundColor: 'var(--color-bg-elevated)' }}
+                >
+                  <span style={{ color: 'var(--color-text-secondary)' }}>{userId}</span>
+                  <button
+                    onClick={() => {
+                      setUserId('')
+                      setUserIdInput('')
+                      localStorage.removeItem('forgebreaker_user_id')
+                    }}
+                    className="text-sm px-2 py-1 rounded hover:opacity-80 transition-opacity"
+                    style={{ color: 'var(--color-accent-primary)' }}
+                  >
+                    Logout
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        {/* Backend Status */}
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            Backend Status
-          </h2>
-          {isLoading && (
-            <p className="text-gray-500">Checking backend connection...</p>
-          )}
-          {error && (
-            <p className="text-red-600">
-              Backend unavailable. Make sure the server is running.
-            </p>
-          )}
-          {health && (
-            <p className="text-green-600">
-              Backend connected: {health.status}
-            </p>
-          )}
-        </div>
+      <main className="max-w-7xl mx-auto px-4 py-6">
+        {/* Backend Status - only show if there's an error */}
+        {(isLoading || error) && (
+          <div
+            className="rounded-lg shadow p-4 mb-6"
+            style={{ backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border)' }}
+          >
+            {isLoading && (
+              <p style={{ color: 'var(--color-text-secondary)' }}>Checking backend connection...</p>
+            )}
+            {error && (
+              <p style={{ color: 'var(--color-accent-primary)' }}>
+                Backend unavailable. Make sure the server is running.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* User ID Setup */}
         {!userId ? (
-          <div className="bg-white rounded-lg shadow p-6 mb-6">
-            <h2 className="text-xl font-semibold text-gray-900 mb-4">
+          <div
+            className="rounded-lg shadow p-8 max-w-md mx-auto mt-20"
+            style={{ backgroundColor: 'var(--color-bg-surface)', border: '1px solid var(--color-border)' }}
+          >
+            <h2
+              className="text-xl font-semibold mb-4"
+              style={{ color: 'var(--color-text-primary)' }}
+            >
               Get Started
             </h2>
-            <p className="text-gray-500 mb-4">
+            <p className="mb-6" style={{ color: 'var(--color-text-secondary)' }}>
               Enter a username to start tracking your collection.
             </p>
-            <form onSubmit={handleSetUserId} className="flex gap-4">
+            <form onSubmit={handleSetUserId} className="flex gap-3">
               <input
                 type="text"
                 value={userIdInput}
                 onChange={(e) => setUserIdInput(e.target.value)}
                 placeholder="Enter your username"
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                className="flex-1 px-4 py-2 rounded-lg focus:outline-none focus:ring-2"
+                style={{
+                  backgroundColor: 'var(--color-bg-elevated)',
+                  border: '1px solid var(--color-border)',
+                  color: 'var(--color-text-primary)',
+                }}
               />
               <button
                 type="submit"
                 disabled={!userIdInput.trim()}
-                className="px-6 py-2 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+                className="px-6 py-2 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+                style={{ backgroundColor: 'var(--color-accent-primary)', color: 'white' }}
               >
                 Continue
               </button>
             </form>
+            {health && (
+              <p className="mt-4 text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+                Backend connected
+              </p>
+            )}
           </div>
         ) : (
-          <>
-            {/* User Info Bar */}
-            <div className="bg-white rounded-lg shadow p-4 mb-6 flex items-center justify-between">
-              <p className="text-gray-700">
-                Logged in as: <span className="font-medium">{userId}</span>
-              </p>
-              <button
-                onClick={() => {
-                  setUserId('')
-                  setUserIdInput('')
-                  localStorage.removeItem('forgebreaker_user_id')
-                }}
-                className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1 text-sm font-medium text-gray-600 shadow-sm hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-              >
-                Switch User
-              </button>
-            </div>
+          <div className="h-[calc(100vh-140px)]">
+            {/* Chat Tab */}
+            {activeTab === 'chat' && (
+              <ChatAdvisor userId={userId} />
+            )}
 
-            {/* Main Content */}
-            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-              <div className="space-y-6">
-                <CollectionImporter userId={userId} />
+            {/* Collection Tab */}
+            {activeTab === 'collection' && (
+              <CollectionImporter userId={userId} />
+            )}
 
-                <ChatAdvisor userId={userId} />
-              </div>
-
-              <div className="xl:col-span-2">
+            {/* Meta Decks Tab */}
+            {activeTab === 'meta' && (
+              <>
                 {selectedDeck ? (
                   <DeckDetail
                     deck={selectedDeck}
@@ -124,9 +162,9 @@ function App() {
                     onSelectDeck={setSelectedDeck}
                   />
                 )}
-              </div>
-            </div>
-          </>
+              </>
+            )}
+          </div>
         )}
       </main>
     </div>
