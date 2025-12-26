@@ -7,11 +7,11 @@ import pytest
 import respx
 
 from forgebreaker.ml.data.card_data import (
-    fetch_set_cards,
     CardDataCache,
     extract_card_type,
-    extract_mana_value,
     extract_colors,
+    extract_mana_value,
+    fetch_set_cards,
 )
 
 

@@ -6,12 +6,12 @@ from pathlib import Path
 import pytest
 
 from forgebreaker.ml.data.loader import (
-    load_17lands_csv,
-    validate_schema,
-    filter_by_set,
-    combine_datasets,
     REQUIRED_COLUMNS,
     SchemaValidationError,
+    combine_datasets,
+    filter_by_set,
+    load_17lands_csv,
+    validate_schema,
 )
 
 
@@ -24,7 +24,7 @@ def sample_csv_content() -> bytes:
     )
     row1 = "BLB,PremierDraft,abc123,2024-01-01,1,1,0,0.5,4,17"
     row2 = "BLB,PremierDraft,abc124,2024-01-01,0,0,1,0.45,3,18"
-    return f"{header}\n{row1}\n{row2}\n".encode("utf-8")
+    return f"{header}\n{row1}\n{row2}\n".encode()
 
 
 @pytest.fixture
@@ -93,7 +93,10 @@ class TestFiltering:
     def test_filters_to_single_set(self, tmp_path: Path) -> None:
         """Can filter data to a single set."""
         # Create CSV with multiple sets
-        header = "expansion,event_type,draft_id,game_time,won,on_play,num_mulligans,user_game_win_rate_bucket,deck_Card"
+        header = (
+            "expansion,event_type,draft_id,game_time,won,on_play,"
+            "num_mulligans,user_game_win_rate_bucket,deck_Card"
+        )
         rows = [
             "BLB,PremierDraft,a,2024-01-01,1,1,0,0.5,4",
             "OTJ,PremierDraft,b,2024-01-01,0,0,1,0.45,3",
@@ -117,7 +120,10 @@ class TestCombineDatasets:
 
     def test_combines_multiple_files(self, tmp_path: Path) -> None:
         """Can combine multiple CSV files into one DataFrame."""
-        header = "expansion,event_type,draft_id,game_time,won,on_play,num_mulligans,user_game_win_rate_bucket,deck_Card"
+        header = (
+            "expansion,event_type,draft_id,game_time,won,on_play,"
+            "num_mulligans,user_game_win_rate_bucket,deck_Card"
+        )
 
         # File 1
         rows1 = ["BLB,PremierDraft,a,2024-01-01,1,1,0,0.5,4"]

@@ -11,7 +11,6 @@ from typing import Any
 
 import httpx
 
-
 # Scryfall API base URL
 _SCRYFALL_API = "https://api.scryfall.com"
 

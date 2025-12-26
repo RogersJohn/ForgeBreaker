@@ -4,8 +4,8 @@ Handles gzipped CSV files from 17Lands S3 bucket.
 Validates schema and provides filtering utilities.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import pandas as pd
 
