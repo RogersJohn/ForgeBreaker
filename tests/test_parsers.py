@@ -111,13 +111,15 @@ Another invalid line
 
 
 class TestCardsToCollection:
-    def test_aggregates_duplicates(self) -> None:
+    def test_uses_max_for_duplicates(self) -> None:
+        """Same card from different sets should use max quantity, not sum."""
         cards = [
             Card(name="Lightning Bolt", quantity=2),
-            Card(name="Lightning Bolt", quantity=2),
+            Card(name="Lightning Bolt", quantity=4),  # Same card, different set
         ]
         collection = cards_to_collection(cards)
 
+        # Should be max(2, 4) = 4, not sum 2 + 4 = 6
         assert collection.get_quantity("Lightning Bolt") == 4
 
     def test_preserves_unique_cards(self) -> None:

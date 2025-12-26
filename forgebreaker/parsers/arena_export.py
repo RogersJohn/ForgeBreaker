@@ -98,18 +98,20 @@ def cards_to_collection(cards: list[Card]) -> Collection:
     """
     Aggregate a list of Cards into a Collection.
 
-    Combines quantities for duplicate card names.
+    Uses max quantity for duplicate card names (same card from different sets).
 
     Args:
         cards: List of Card objects (possibly with duplicates)
 
     Returns:
-        Collection with aggregated quantities
+        Collection with max quantities per card name
     """
     collection = Collection()
 
     for card in cards:
-        collection.add_card(card.name, card.quantity)
+        # Use max to handle same card from different sets (Arena exports each set separately)
+        current = collection.cards.get(card.name, 0)
+        collection.cards[card.name] = max(current, card.quantity)
 
     return collection
 
