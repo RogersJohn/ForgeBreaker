@@ -138,21 +138,21 @@ def export_to_onnx(
         output_path: Path to save ONNX model
 
     Raises:
-        ImportError: If skl2onnx or onnxmltools not available
+        ImportError: If onnxmltools not available
     """
     try:
-        from skl2onnx import convert_sklearn  # type: ignore
-        from skl2onnx.common.data_types import FloatTensorType  # type: ignore
+        from onnxmltools import convert_xgboost  # type: ignore
+        from onnxmltools.convert.common.data_types import FloatTensorType  # type: ignore
     except ImportError as e:
         raise ImportError(
-            "skl2onnx required for ONNX export. Install with: pip install skl2onnx"
+            "onnxmltools required for ONNX export. Install with: pip install onnxmltools"
         ) from e
 
     # Define input type
     initial_type = [("input", FloatTensorType([None, len(feature_names)]))]
 
-    # Convert to ONNX
-    onnx_model = convert_sklearn(
+    # Convert to ONNX using onnxmltools (has XGBoost support)
+    onnx_model = convert_xgboost(
         model,
         initial_types=initial_type,
         target_opset=12,

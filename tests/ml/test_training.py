@@ -126,7 +126,7 @@ class TestEvaluateModel:
 # Check if ONNX dependencies are available
 ONNX_AVAILABLE = (
     importlib.util.find_spec("onnxruntime") is not None
-    and importlib.util.find_spec("skl2onnx") is not None
+    and importlib.util.find_spec("onnxmltools") is not None
 )
 
 
