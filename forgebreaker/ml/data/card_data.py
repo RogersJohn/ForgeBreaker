@@ -106,7 +106,7 @@ class CardDataCache:
         cache_path = self._cache_path(set_code)
         if cache_path.exists():
             with open(cache_path, encoding="utf-8") as f:
-                cards = json.load(f)
+                cards: dict[str, dict[str, Any]] = json.load(f)
             self._memory_cache[set_code] = cards
             return cards
 

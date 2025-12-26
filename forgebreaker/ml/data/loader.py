@@ -7,7 +7,7 @@ Validates schema and provides filtering utilities.
 from collections.abc import Sequence
 from pathlib import Path
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 
 class SchemaValidationError(Exception):
