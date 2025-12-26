@@ -216,7 +216,7 @@ XGBoost classifier that predicts deck win probability based on deck composition 
 ```
 
 ## Limitations
-- Trained on draft data only (PremierDraft, TradDraft, QuickDraft, Sealed)
+- Trained on limited format data (Premier Draft, Traditional Draft, Quick Draft, Sealed)
 - Performance may vary across different sets and formats
 - Does not account for individual card power levels
 

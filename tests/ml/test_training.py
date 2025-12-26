@@ -14,6 +14,7 @@ from forgebreaker.ml.training.train import (
     VAL_RATIO,
     evaluate_model,
     export_to_onnx,
+    generate_model_card,
     save_metadata,
     split_by_draft_id,
     train_model,
@@ -63,9 +64,9 @@ class TestSplitByDraftId:
         assert total == len(sample_features)
 
         # Check approximate proportions (allow some variance due to grouping)
-        assert len(train) / total >= TRAIN_RATIO - 0.1
-        assert len(val) / total >= VAL_RATIO - 0.1
-        assert len(test) / total >= TEST_RATIO - 0.1
+        assert len(train) / total >= TRAIN_RATIO - 0.05
+        assert len(val) / total >= VAL_RATIO - 0.05
+        assert len(test) / total >= TEST_RATIO - 0.05
 
     def test_no_draft_id_leakage(self, sample_features: pd.DataFrame) -> None:
         """No draft_id appears in multiple splits."""
@@ -207,3 +208,23 @@ class TestSaveMetadata:
         assert metadata["feature_names"] == feature_cols
         assert "metrics" in metadata
         assert metadata["metrics"]["accuracy"] == 0.55
+
+
+class TestGenerateModelCard:
+    """Tests for model card generation."""
+
+    def test_generates_model_card(self, tmp_path: Path) -> None:
+        """Generates MODEL_CARD.md with correct content."""
+        metrics = {"accuracy": 0.55, "auc": 0.58}
+
+        card_path = tmp_path / "MODEL_CARD.md"
+        generate_model_card(metrics, card_path)
+
+        assert card_path.exists()
+
+        content = card_path.read_text()
+        assert "# Deck Win Rate Predictor" in content
+        assert "0.5500" in content  # accuracy
+        assert "0.5800" in content  # auc
+        assert "XGBoost" in content
+        assert "17Lands" in content
