@@ -141,10 +141,8 @@ def export_to_onnx(
         ImportError: If skl2onnx or onnxmltools not available
     """
     try:
-        from skl2onnx import convert_sklearn  # type: ignore[import-untyped,import-not-found]
-        from skl2onnx.common.data_types import (
-            FloatTensorType,  # type: ignore[import-untyped,import-not-found]
-        )
+        from skl2onnx import convert_sklearn  # type: ignore
+        from skl2onnx.common.data_types import FloatTensorType  # type: ignore
     except ImportError as e:
         raise ImportError(
             "skl2onnx required for ONNX export. Install with: pip install skl2onnx"
