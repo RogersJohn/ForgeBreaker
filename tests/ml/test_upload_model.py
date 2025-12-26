@@ -1,5 +1,6 @@
 """Tests for MLForge model upload."""
 
+import json
 from pathlib import Path
 
 import httpx
@@ -24,8 +25,6 @@ def sample_model_file(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_metadata(tmp_path: Path) -> Path:
     """Create a sample metadata file."""
-    import json
-
     metadata_path = tmp_path / "metadata.json"
     metadata = {
         "feature_names": ["f1", "f2", "f3"],

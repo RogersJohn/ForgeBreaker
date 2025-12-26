@@ -21,8 +21,6 @@ import httpx
 class UploadError(Exception):
     """Raised when model upload fails."""
 
-    pass
-
 
 async def upload_model(
     model_path: Path,
@@ -41,22 +39,31 @@ async def upload_model(
         Response from MLForge API with model_id
 
     Raises:
-        UploadError: If upload fails
+        UploadError: If upload fails (network, HTTP, or file errors)
     """
     url = f"{mlforge_url}/api/v1/models/upload"
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        with open(model_path, "rb") as f:
-            files = {"model": (model_path.name, f, "application/octet-stream")}
+    try:
+        model_bytes = model_path.read_bytes()
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        raise UploadError(f"Failed to read model file '{model_path}': {exc}") from exc
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            files = {"model": (model_path.name, model_bytes, "application/octet-stream")}
             response = await client.post(url, files=files)
+    except httpx.RequestError as exc:
+        raise UploadError(f"Network error uploading model: {exc}") from exc
 
-        if response.status_code != 200:
-            raise UploadError(
-                f"Failed to upload model: HTTP {response.status_code} - {response.text}"
-            )
+    if not response.is_success:
+        raise UploadError(f"Failed to upload model: HTTP {response.status_code} - {response.text}")
 
+    try:
         result: dict[str, Any] = response.json()
-        return result
+    except json.JSONDecodeError as exc:
+        raise UploadError(f"Invalid JSON response: {response.text}") from exc
+
+    return result
 
 
 async def register_model(
@@ -78,23 +85,35 @@ async def register_model(
         Response from MLForge API
 
     Raises:
-        UploadError: If registration fails
+        UploadError: If registration fails (network, HTTP, or file errors)
     """
     url = f"{mlforge_url}/api/v1/models/{model_id}/register"
 
-    with open(metadata_path) as f:
-        metadata = json.load(f)
+    try:
+        with open(metadata_path) as f:
+            metadata = json.load(f)
+    except (FileNotFoundError, PermissionError, OSError) as exc:
+        raise UploadError(f"Failed to read metadata file '{metadata_path}': {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise UploadError(f"Invalid JSON in metadata file '{metadata_path}': {exc}") from exc
 
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        response = await client.post(url, json=metadata)
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=metadata)
+    except httpx.RequestError as exc:
+        raise UploadError(f"Network error registering model: {exc}") from exc
 
-        if response.status_code != 200:
-            raise UploadError(
-                f"Failed to register model: HTTP {response.status_code} - {response.text}"
-            )
+    if not response.is_success:
+        raise UploadError(
+            f"Failed to register model: HTTP {response.status_code} - {response.text}"
+        )
 
+    try:
         result: dict[str, Any] = response.json()
-        return result
+    except json.JSONDecodeError as exc:
+        raise UploadError(f"Invalid JSON response: {response.text}") from exc
+
+    return result
 
 
 async def deploy_model(
@@ -111,6 +130,9 @@ async def deploy_model(
 
     Returns:
         Combined response with model_id and registration status
+
+    Raises:
+        UploadError: If upload or registration fails
     """
     # Upload model file
     upload_response = await upload_model(model_path, mlforge_url)
