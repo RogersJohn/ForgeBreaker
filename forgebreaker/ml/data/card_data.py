@@ -18,6 +18,12 @@ _SCRYFALL_API = "https://api.scryfall.com"
 _RATE_LIMIT_DELAY = 0.1
 
 
+class FetchError(Exception):
+    """Raised when fetching card data fails."""
+
+    pass
+
+
 async def fetch_set_cards(set_code: str) -> dict[str, dict[str, Any]]:
     """Fetch all cards for a set from Scryfall.
 
@@ -26,26 +32,36 @@ async def fetch_set_cards(set_code: str) -> dict[str, dict[str, Any]]:
 
     Returns:
         Dict mapping card name to card data
+
+    Raises:
+        FetchError: If API request fails
     """
     cards: dict[str, dict[str, Any]] = {}
     url = f"{_SCRYFALL_API}/cards/search"
     params = {"q": f"set:{set_code.lower()}"}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        has_more = True
-        while has_more:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            has_more = True
+            while has_more:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json()
 
-            for card in data.get("data", []):
-                cards[card["name"]] = card
+                for card in data.get("data", []):
+                    cards[card["name"]] = card
 
-            has_more = data.get("has_more", False)
-            if has_more:
-                url = data.get("next_page", "")
-                params = {}  # Next page URL includes params
-                await asyncio.sleep(_RATE_LIMIT_DELAY)
+                has_more = data.get("has_more", False)
+                if has_more:
+                    url = data.get("next_page", "")
+                    params = {}  # Next page URL includes params
+                    await asyncio.sleep(_RATE_LIMIT_DELAY)
+    except httpx.HTTPStatusError as e:
+        raise FetchError(
+            f"Failed to fetch cards for {set_code}: HTTP {e.response.status_code}"
+        ) from e
+    except httpx.RequestError as e:
+        raise FetchError(f"Failed to fetch cards for {set_code}: {e}") from e
 
     return cards
 
@@ -89,7 +105,7 @@ class CardDataCache:
         # Check file cache
         cache_path = self._cache_path(set_code)
         if cache_path.exists():
-            with open(cache_path) as f:
+            with open(cache_path, encoding="utf-8") as f:
                 cards = json.load(f)
             self._memory_cache[set_code] = cards
             return cards
@@ -98,7 +114,7 @@ class CardDataCache:
         cards = await fetch_set_cards(set_code)
 
         # Save to caches
-        with open(cache_path, "w") as f:
+        with open(cache_path, "w", encoding="utf-8") as f:
             json.dump(cards, f)
         self._memory_cache[set_code] = cards
 

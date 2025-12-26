@@ -8,6 +8,7 @@ import respx
 
 from forgebreaker.ml.data.card_data import (
     CardDataCache,
+    FetchError,
     extract_card_type,
     extract_colors,
     extract_mana_value,
@@ -64,6 +65,15 @@ class TestFetchSetCards:
         assert len(cards) == 3
         assert "Lightning Bolt" in cards
         assert cards["Lightning Bolt"]["cmc"] == 1.0
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_raises_on_http_error(self) -> None:
+        """HTTP errors are wrapped in FetchError."""
+        respx.get("https://api.scryfall.com/cards/search").mock(return_value=httpx.Response(404))
+
+        with pytest.raises(FetchError, match="Failed to fetch cards"):
+            await fetch_set_cards("INVALID")
 
 
 class TestCardDataCache:
