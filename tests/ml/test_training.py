@@ -1,5 +1,6 @@
 """Tests for model training pipeline."""
 
+import importlib.util
 from pathlib import Path
 
 import numpy as np
@@ -7,15 +8,15 @@ import pandas as pd
 import pytest
 
 from forgebreaker.ml.training.train import (
-    split_by_draft_id,
-    train_model,
+    MODEL_CONFIG,
+    TEST_RATIO,
+    TRAIN_RATIO,
+    VAL_RATIO,
     evaluate_model,
     export_to_onnx,
     save_metadata,
-    MODEL_CONFIG,
-    TRAIN_RATIO,
-    VAL_RATIO,
-    TEST_RATIO,
+    split_by_draft_id,
+    train_model,
 )
 
 
@@ -25,28 +26,30 @@ def sample_features() -> pd.DataFrame:
     np.random.seed(42)
     n_samples = 100
 
-    return pd.DataFrame({
-        "n_cards_in_deck": np.random.randint(35, 45, n_samples),
-        "n_creatures": np.random.randint(10, 20, n_samples),
-        "n_lands": np.random.randint(15, 18, n_samples),
-        "n_noncreature_spells": np.random.randint(5, 15, n_samples),
-        "avg_mana_value": np.random.uniform(2.0, 4.0, n_samples),
-        "curve_1_drop": np.random.randint(2, 8, n_samples),
-        "curve_2_drop": np.random.randint(4, 10, n_samples),
-        "curve_3_drop": np.random.randint(3, 8, n_samples),
-        "curve_4_drop": np.random.randint(1, 5, n_samples),
-        "curve_5plus_drop": np.random.randint(0, 4, n_samples),
-        "color_W": np.random.randint(0, 2, n_samples),
-        "color_U": np.random.randint(0, 2, n_samples),
-        "color_B": np.random.randint(0, 2, n_samples),
-        "color_R": np.random.randint(0, 2, n_samples),
-        "color_G": np.random.randint(0, 2, n_samples),
-        "on_play": np.random.randint(0, 2, n_samples),
-        "num_mulligans": np.random.randint(0, 3, n_samples),
-        "user_skill_bucket": np.random.uniform(0.3, 0.7, n_samples),
-        "won": np.random.randint(0, 2, n_samples),
-        "draft_id": [f"draft_{i // 5}" for i in range(n_samples)],  # 20 unique drafts
-    })
+    return pd.DataFrame(
+        {
+            "n_cards_in_deck": np.random.randint(35, 45, n_samples),
+            "n_creatures": np.random.randint(10, 20, n_samples),
+            "n_lands": np.random.randint(15, 18, n_samples),
+            "n_noncreature_spells": np.random.randint(5, 15, n_samples),
+            "avg_mana_value": np.random.uniform(2.0, 4.0, n_samples),
+            "curve_1_drop": np.random.randint(2, 8, n_samples),
+            "curve_2_drop": np.random.randint(4, 10, n_samples),
+            "curve_3_drop": np.random.randint(3, 8, n_samples),
+            "curve_4_drop": np.random.randint(1, 5, n_samples),
+            "curve_5plus_drop": np.random.randint(0, 4, n_samples),
+            "color_W": np.random.randint(0, 2, n_samples),
+            "color_U": np.random.randint(0, 2, n_samples),
+            "color_B": np.random.randint(0, 2, n_samples),
+            "color_R": np.random.randint(0, 2, n_samples),
+            "color_G": np.random.randint(0, 2, n_samples),
+            "on_play": np.random.randint(0, 2, n_samples),
+            "num_mulligans": np.random.randint(0, 3, n_samples),
+            "user_skill_bucket": np.random.uniform(0.3, 0.7, n_samples),
+            "won": np.random.randint(0, 2, n_samples),
+            "draft_id": [f"draft_{i // 5}" for i in range(n_samples)],  # 20 unique drafts
+        }
+    )
 
 
 class TestSplitByDraftId:
@@ -121,21 +124,17 @@ class TestEvaluateModel:
 
 
 # Check if ONNX dependencies are available
-try:
-    import onnxruntime
-    import skl2onnx
-    ONNX_AVAILABLE = True
-except ImportError:
-    ONNX_AVAILABLE = False
+ONNX_AVAILABLE = (
+    importlib.util.find_spec("onnxruntime") is not None
+    and importlib.util.find_spec("skl2onnx") is not None
+)
 
 
 @pytest.mark.skipif(not ONNX_AVAILABLE, reason="ONNX dependencies not available")
 class TestExportToOnnx:
     """Tests for ONNX export."""
 
-    def test_exports_to_onnx(
-        self, sample_features: pd.DataFrame, tmp_path: Path
-    ) -> None:
+    def test_exports_to_onnx(self, sample_features: pd.DataFrame, tmp_path: Path) -> None:
         """Exports model to ONNX format."""
         train, val, _ = split_by_draft_id(sample_features)
         feature_cols = [c for c in train.columns if c not in ["won", "draft_id"]]
@@ -178,9 +177,9 @@ class TestExportToOnnx:
 
         session = ort.InferenceSession(str(onnx_path))
         input_name = session.get_inputs()[0].name
-        onnx_probs = session.run(
-            None, {input_name: test[feature_cols].values.astype(np.float32)}
-        )[1][:, 1]
+        onnx_probs = session.run(None, {input_name: test[feature_cols].values.astype(np.float32)})[
+            1
+        ][:, 1]
 
         # Predictions should be very close
         np.testing.assert_allclose(xgb_probs, onnx_probs, rtol=1e-5, atol=1e-5)
@@ -189,15 +188,11 @@ class TestExportToOnnx:
 class TestSaveMetadata:
     """Tests for metadata saving."""
 
-    def test_saves_feature_names(
-        self, sample_features: pd.DataFrame, tmp_path: Path
-    ) -> None:
+    def test_saves_feature_names(self, sample_features: pd.DataFrame, tmp_path: Path) -> None:
         """Saves feature names to metadata file."""
         import json
 
-        feature_cols = [
-            c for c in sample_features.columns if c not in ["won", "draft_id"]
-        ]
+        feature_cols = [c for c in sample_features.columns if c not in ["won", "draft_id"]]
         metrics = {"accuracy": 0.55, "auc": 0.58}
 
         metadata_path = tmp_path / "metadata.json"

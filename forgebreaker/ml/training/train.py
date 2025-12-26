@@ -13,7 +13,6 @@ import pandas as pd
 from sklearn.metrics import accuracy_score, roc_auc_score
 from xgboost import XGBClassifier
 
-
 # Model hyperparameters
 MODEL_CONFIG = {
     "n_estimators": 100,
@@ -67,9 +66,9 @@ def split_by_draft_id(
 
 
 def train_model(
-    X_train: pd.DataFrame,
+    X_train: pd.DataFrame,  # noqa: N803
     y_train: pd.Series,
-    X_val: pd.DataFrame,
+    X_val: pd.DataFrame,  # noqa: N803
     y_val: pd.Series,
 ) -> XGBClassifier:
     """Train XGBoost classifier.
@@ -104,7 +103,7 @@ def train_model(
 
 def evaluate_model(
     model: XGBClassifier,
-    X_test: pd.DataFrame,
+    X_test: pd.DataFrame,  # noqa: N803
     y_test: pd.Series,
 ) -> dict[str, float]:
     """Evaluate model on test set.
@@ -205,11 +204,11 @@ XGBoost classifier that predicts deck win probability based on deck composition 
 
 ## Training Data
 - Source: 17Lands public game data
-- Features: Deck composition (card types, mana curve, colors), game context (on play, mulligans, skill bucket)
+- Features: Deck composition, mana curve, colors, game context
 
 ## Performance Metrics
-- Accuracy: {metrics.get('accuracy', 0):.4f}
-- AUC-ROC: {metrics.get('auc', 0):.4f}
+- Accuracy: {metrics.get("accuracy", 0):.4f}
+- AUC-ROC: {metrics.get("auc", 0):.4f}
 
 ## Model Configuration
 ```json
