@@ -43,8 +43,8 @@ def parse_simple_format(text: str) -> dict[str, int]:
             quantity = int(match.group(1))
             name = match.group(2).strip()
             if name:
-                # Aggregate duplicates
-                cards[name] = cards.get(name, 0) + quantity
+                # Use max for duplicates (same card from different sets)
+                cards[name] = max(cards.get(name, 0), quantity)
 
     return cards
 
@@ -99,7 +99,8 @@ def parse_csv_format(text: str) -> dict[str, int]:
             quantity = 1
 
         if quantity > 0:
-            cards[name] = cards.get(name, 0) + quantity
+            # Use max for duplicates (same card from different sets)
+            cards[name] = max(cards.get(name, 0), quantity)
 
     return cards
 

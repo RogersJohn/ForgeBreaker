@@ -174,12 +174,14 @@ class TestParseSimpleFormat:
             "Mountain": 20,
         }
 
-    def test_aggregates_duplicates(self) -> None:
+    def test_uses_max_for_duplicates(self) -> None:
+        """Same card listed twice should use max quantity, not sum."""
         text = """4 Lightning Bolt
 2 Lightning Bolt"""
         result = parse_simple_format(text)
 
-        assert result == {"Lightning Bolt": 6}
+        # Should be max(4, 2) = 4, not sum 4 + 2 = 6
+        assert result == {"Lightning Bolt": 4}
 
     def test_empty_input(self) -> None:
         assert parse_simple_format("") == {}
