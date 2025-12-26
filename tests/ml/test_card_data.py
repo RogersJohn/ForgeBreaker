@@ -71,9 +71,7 @@ class TestCardDataCache:
 
     @pytest.mark.asyncio
     @respx.mock
-    async def test_caches_card_data(
-        self, tmp_path: Path, sample_scryfall_response: dict
-    ) -> None:
+    async def test_caches_card_data(self, tmp_path: Path, sample_scryfall_response: dict) -> None:
         """Doesn't re-fetch if data is cached."""
         respx.get("https://api.scryfall.com/cards/search").mock(
             return_value=httpx.Response(200, json=sample_scryfall_response)
