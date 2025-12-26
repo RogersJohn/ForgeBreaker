@@ -25,7 +25,7 @@ ForgeBreaker is the only repo that knows about MTG. The other two are generic in
 4. **NO NETWORK CALLS IN TESTS**: Mock all HTTP requests
 5. **AI ASSISTANCE IS ACKNOWLEDGED**: We own that Claude helps write code
 
-## Current Sprint: ML Pipeline (Days 1-4)
+## Completed Sprint: ML Pipeline ✅
 
 ### Work Item 1: 17Lands Data Downloader
 
@@ -254,14 +254,14 @@ python -m forgebreaker.ml.deploy.upload_model --model models/deck_winrate_predic
 
 ---
 
-## Dependencies to Add
+## ML Dependencies
 
 ```
-# pyproject.toml [project.optional-dependencies] or requirements.txt
+# pyproject.toml [project.optional-dependencies.ml]
 pandas>=2.0.0
 xgboost>=2.0.0
 scikit-learn>=1.3.0
-skl2onnx>=1.16.0
+onnxmltools>=1.12.0  # XGBoost ONNX export
 onnxruntime>=1.16.0
 httpx>=0.25.0
 ```
@@ -291,3 +291,23 @@ httpx>=0.25.0
 ## AI Assistance
 
 This project is built with Claude as an AI pair programmer. John Rogers provides architecture, direction, and review. Claude assists with implementation. This is explicitly acknowledged—not hidden.
+
+---
+
+## Current State
+
+**Last Updated**: 2025-12-26
+
+**Last PR Merged**: #81 (chore: remove redundant features.py)
+
+**ML Pipeline Status**: ✅ Complete
+- PR #74: 17Lands data downloader
+- PR #75: 17Lands data loader
+- PR #76: Scryfall card data fetcher
+- PR #77: Features package refactor
+- PR #78: Training feature engineering
+- PR #79: XGBoost training + ONNX export
+- PR #80: MLForge upload client
+- PR #81: Cleanup redundant file
+
+**Next Steps**: TBD - ML pipeline ready for integration with deck recommendations
