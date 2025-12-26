@@ -35,6 +35,15 @@ export interface ImportResponse {
   cards: Record<string, number>
 }
 
+export interface CollectionStatsResponse {
+  user_id: string
+  total_cards: number
+  unique_cards: number
+  by_rarity: Record<string, number>
+  by_color: Record<string, number>
+  by_type: Record<string, number>
+}
+
 export interface DistanceResponse {
   deck_name: string
   archetype: string
@@ -122,6 +131,10 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ text, format, merge }),
     })
+  }
+
+  async getCollectionStats(userId: string): Promise<CollectionStatsResponse> {
+    return this.request(`/collection/${userId}/stats`)
   }
 
   // Distance
