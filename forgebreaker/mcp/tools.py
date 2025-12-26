@@ -181,8 +181,9 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
         name="search_collection",
         description=(
             "Search the user's card collection for cards matching specific criteria. "
-            "Use when the user asks about cards they own, like 'do I have any goblins?' "
-            "or 'show me my enchantments' or 'what shrines do I own?'"
+            "Use for queries like: 'how many black dragons?', 'what creatures have flying?', "
+            "'show me my 3-drops', 'what cards draw cards?', 'what mono-red cards do I have?', "
+            "'what Standard-legal rares do I own?'"
         ),
         parameters={
             "type": "object",
@@ -195,23 +196,93 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                     "type": "string",
                     "description": "Find cards with this text in the name (case-insensitive)",
                 },
+                "oracle_text": {
+                    "type": "string",
+                    "description": (
+                        "Find cards with this text in the rules text. "
+                        "Examples: 'draw a card', 'destroy target', 'create a token'"
+                    ),
+                },
                 "card_type": {
                     "type": "string",
-                    "description": "Filter by card type (Creature, Enchantment, Instant, etc.)",
+                    "description": (
+                        "Filter by type line (Creature, Instant, Dragon, Goblin, Shrine, etc.)"
+                    ),
                 },
                 "colors": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["W", "U", "B", "R", "G"]},
-                    "description": "Filter by color (W=White, U=Blue, B=Black, R=Red, G=Green)",
+                    "description": (
+                        "Filter by color identity (W=White, U=Blue, B=Black, R=Red, G=Green)"
+                    ),
+                },
+                "color_exact": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, card must have EXACTLY these colors (for mono-color queries). "
+                        "If false (default), card must have at least one of these colors."
+                    ),
+                    "default": False,
+                },
+                "cmc": {
+                    "type": "integer",
+                    "description": "Exact mana value (e.g., 3 for 3-drops)",
+                },
+                "cmc_min": {
+                    "type": "integer",
+                    "description": "Minimum mana value",
+                },
+                "cmc_max": {
+                    "type": "integer",
+                    "description": "Maximum mana value",
+                },
+                "keywords": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Filter by keyword abilities. Card must have ALL specified keywords. "
+                        "Examples: ['flying'], ['lifelink', 'deathtouch'], ['haste']"
+                    ),
                 },
                 "set_code": {
                     "type": "string",
-                    "description": "Filter by set code (e.g., 'DMU', 'M21', 'FDN')",
+                    "description": "Filter by set code (e.g., 'DMU', 'FDN', 'OTJ')",
                 },
                 "rarity": {
                     "type": "string",
                     "enum": ["common", "uncommon", "rare", "mythic"],
                     "description": "Filter by rarity",
+                },
+                "format_legal": {
+                    "type": "string",
+                    "enum": [
+                        "standard",
+                        "historic",
+                        "explorer",
+                        "pioneer",
+                        "modern",
+                        "legacy",
+                        "vintage",
+                        "brawl",
+                        "timeless",
+                    ],
+                    "description": "Filter by format legality",
+                },
+                "power_min": {
+                    "type": "integer",
+                    "description": "Minimum power (creatures only)",
+                },
+                "power_max": {
+                    "type": "integer",
+                    "description": "Maximum power (creatures only)",
+                },
+                "toughness_min": {
+                    "type": "integer",
+                    "description": "Minimum toughness (creatures only)",
+                },
+                "toughness_max": {
+                    "type": "integer",
+                    "description": "Maximum toughness (creatures only)",
                 },
                 "min_quantity": {
                     "type": "integer",
@@ -562,29 +633,43 @@ async def search_collection_tool(
     session: AsyncSession,
     user_id: str,
     card_db: dict[str, dict[str, Any]],
+    # Name and text filters
     name_contains: str | None = None,
+    oracle_text: str | None = None,
+    # Type filters
     card_type: str | None = None,
+    # Color filters
     colors: list[str] | None = None,
+    color_exact: bool = False,
+    # Mana cost filters
+    cmc: int | None = None,
+    cmc_min: int | None = None,
+    cmc_max: int | None = None,
+    # Keyword filters
+    keywords: list[str] | None = None,
+    # Set and rarity filters
     set_code: str | None = None,
     rarity: str | None = None,
+    # Format legality
+    format_legal: str | None = None,
+    # Creature stat filters
+    power_min: int | None = None,
+    power_max: int | None = None,
+    toughness_min: int | None = None,
+    toughness_max: int | None = None,
+    # Quantity filters
     min_quantity: int = 1,
 ) -> dict[str, Any]:
     """
     Search user's collection for cards matching criteria.
 
-    Args:
-        session: Database session
-        user_id: User's ID
-        card_db: Card database from Scryfall
-        name_contains: Filter by name substring
-        card_type: Filter by type line
-        colors: Filter by colors
-        set_code: Filter by set
-        rarity: Filter by rarity
-        min_quantity: Minimum quantity owned
-
-    Returns:
-        Dict with search results
+    Supports comprehensive queries like:
+    - "how many black dragons?" -> card_type="Dragon", colors=["B"]
+    - "what creatures have flying?" -> card_type="Creature", keywords=["flying"]
+    - "show me my 3-drops" -> cmc=3
+    - "what cards draw cards?" -> oracle_text="draw"
+    - "what mono-red cards?" -> colors=["R"], color_exact=True
+    - "what Standard-legal rares?" -> format_legal="standard", rarity="rare"
     """
     db_collection = await get_collection(session, user_id)
 
@@ -600,17 +685,32 @@ async def search_collection_tool(
         collection=collection,
         card_db=card_db,
         name_contains=name_contains,
+        oracle_text=oracle_text,
         card_type=card_type,
         colors=colors,
+        color_exact=color_exact,
+        cmc=cmc,
+        cmc_min=cmc_min,
+        cmc_max=cmc_max,
+        keywords=keywords,
         set_code=set_code,
         rarity=rarity,
+        format_legal=format_legal,
+        power_min=power_min,
+        power_max=power_max,
+        toughness_min=toughness_min,
+        toughness_max=toughness_max,
         min_quantity=min_quantity,
     )
 
-    formatted = format_search_results(results)
+    formatted = format_search_results(results, include_quantities=True)
+
+    # Calculate totals
+    total_cards = sum(r.quantity for r in results)
 
     return {
-        "count": len(results),
+        "unique_count": len(results),
+        "total_cards": total_cards,
         "results": [
             {
                 "name": r.name,
@@ -619,6 +719,8 @@ async def search_collection_tool(
                 "colors": r.colors,
                 "rarity": r.rarity,
                 "set": r.set_code,
+                "cmc": r.cmc,
+                "keywords": r.keywords,
             }
             for r in results
         ],
@@ -889,11 +991,31 @@ async def execute_tool(
             session,
             user_id=arguments["user_id"],
             card_db=card_db,
+            # Name and text filters
             name_contains=arguments.get("name_contains"),
+            oracle_text=arguments.get("oracle_text"),
+            # Type filters
             card_type=arguments.get("card_type"),
+            # Color filters
             colors=arguments.get("colors"),
+            color_exact=arguments.get("color_exact", False),
+            # Mana cost filters
+            cmc=arguments.get("cmc"),
+            cmc_min=arguments.get("cmc_min"),
+            cmc_max=arguments.get("cmc_max"),
+            # Keyword filters
+            keywords=arguments.get("keywords"),
+            # Set and rarity filters
             set_code=arguments.get("set_code"),
             rarity=arguments.get("rarity"),
+            # Format legality
+            format_legal=arguments.get("format_legal"),
+            # Creature stat filters
+            power_min=arguments.get("power_min"),
+            power_max=arguments.get("power_max"),
+            toughness_min=arguments.get("toughness_min"),
+            toughness_max=arguments.get("toughness_max"),
+            # Quantity filters
             min_quantity=arguments.get("min_quantity", 1),
         )
     elif tool_name == "build_deck":
