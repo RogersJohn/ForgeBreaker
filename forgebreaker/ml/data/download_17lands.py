@@ -98,12 +98,14 @@ async def download_file(
     url = construct_17lands_url(set_code, event_type)
 
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
-            async with client.stream("GET", url) as response:
-                response.raise_for_status()
-                with open(file_path, "wb") as f:
-                    async for chunk in response.aiter_bytes():
-                        f.write(chunk)
+        async with (
+            httpx.AsyncClient(timeout=300.0) as client,
+            client.stream("GET", url) as response,
+        ):
+            response.raise_for_status()
+            with open(file_path, "wb") as f:
+                async for chunk in response.aiter_bytes():
+                    f.write(chunk)
     except httpx.HTTPStatusError as e:
         raise DownloadError(
             f"Failed to download {set_code} {event_type}: HTTP {e.response.status_code}"

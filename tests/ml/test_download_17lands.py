@@ -7,12 +7,12 @@ import pytest
 import respx
 
 from forgebreaker.ml.data.download_17lands import (
+    VALID_EVENT_TYPES,
     DownloadError,
     construct_17lands_url,
-    generate_file_path,
     download_file,
     download_multiple_sets,
-    VALID_EVENT_TYPES,
+    generate_file_path,
 )
 
 
