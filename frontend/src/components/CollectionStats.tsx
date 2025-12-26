@@ -5,22 +5,22 @@ interface CollectionStatsProps {
 }
 
 const RARITY_COLORS: Record<string, string> = {
-  common: '#1a1a2e',
-  uncommon: '#c0c0c0',
-  rare: '#ffd700',
-  mythic: '#ff6b00',
-  other: '#666666',
+  common: 'var(--color-rarity-common)',
+  uncommon: 'var(--color-rarity-uncommon)',
+  rare: 'var(--color-rarity-rare)',
+  mythic: 'var(--color-rarity-mythic)',
+  other: 'var(--color-rarity-other)',
 }
 
 const MANA_COLORS: Record<string, string> = {
-  W: '#f9faf4',
-  U: '#0e68ab',
-  B: '#150b00',
-  R: '#d3202a',
-  G: '#00733e',
-  colorless: '#6b6b6b',
-  multicolor: '#cfb53b',
-  other: '#444444',
+  W: 'var(--color-mana-w)',
+  U: 'var(--color-mana-u)',
+  B: 'var(--color-mana-b)',
+  R: 'var(--color-mana-r)',
+  G: 'var(--color-mana-g)',
+  colorless: 'var(--color-mana-colorless)',
+  multicolor: 'var(--color-mana-multicolor)',
+  other: 'var(--color-mana-other)',
 }
 
 function StatBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
@@ -31,7 +31,15 @@ function StatBar({ label, value, max, color }: { label: string; value: number; m
       <span className="w-20 text-xs truncate" style={{ color: 'var(--color-text-secondary)' }}>
         {label}
       </span>
-      <div className="flex-1 h-4 rounded-full overflow-hidden" style={{ backgroundColor: 'var(--color-bg-primary)' }}>
+      <div
+        className="flex-1 h-4 rounded-full overflow-hidden"
+        style={{ backgroundColor: 'var(--color-bg-primary)' }}
+        role="progressbar"
+        aria-valuenow={value}
+        aria-valuemin={0}
+        aria-valuemax={max}
+        aria-label={`${label}: ${value.toLocaleString()} cards`}
+      >
         <div
           className="h-full rounded-full transition-all duration-300"
           style={{ width: `${percentage}%`, backgroundColor: color }}

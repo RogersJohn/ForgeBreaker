@@ -18,6 +18,19 @@
   --color-mana-r: #d3202a;
   --color-mana-g: #00733e;
   --color-mana-colorless: #6b6b6b;
+  --color-mana-multicolor: #cfb53b;
+  --color-mana-other: #444444;
+
+  /* Rarity colors */
+  --color-rarity-common: #1a1a2e;
+  --color-rarity-uncommon: #c0c0c0;
+  --color-rarity-rare: #ffd700;
+  --color-rarity-mythic: #ff6b00;
+  --color-rarity-other: #666666;
+
+  /* Semantic colors */
+  --color-error: #dc2626;
+  --color-success: #22c55e;
 }
 
 body {

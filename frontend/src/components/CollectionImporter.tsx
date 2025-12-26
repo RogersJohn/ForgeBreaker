@@ -204,13 +204,13 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
             />
 
             {importMutation.isError && (
-              <p className="mt-2 text-sm" style={{ color: 'var(--color-accent-primary)' }}>
+              <p className="mt-2 text-sm" style={{ color: 'var(--color-error)' }}>
                 Failed to import collection. Please check the format and try again.
               </p>
             )}
 
             {importMutation.isSuccess && (
-              <p className="mt-2 text-sm" style={{ color: '#22c55e' }}>
+              <p className="mt-2 text-sm" style={{ color: 'var(--color-success)' }}>
                 Collection imported successfully!
               </p>
             )}
@@ -287,13 +287,13 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
             </button>
 
             {importMutation.isError && (
-              <p className="mt-2 text-sm" style={{ color: 'var(--color-accent-primary)' }}>
+              <p className="mt-2 text-sm" style={{ color: 'var(--color-error)' }}>
                 Failed to import decks. Please check the format and try again.
               </p>
             )}
 
             {importMutation.isSuccess && (
-              <p className="mt-2 text-sm" style={{ color: '#22c55e' }}>
+              <p className="mt-2 text-sm" style={{ color: 'var(--color-success)' }}>
                 Decks imported successfully!
               </p>
             )}
