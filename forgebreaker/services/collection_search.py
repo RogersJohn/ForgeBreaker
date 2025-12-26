@@ -4,10 +4,13 @@ Collection search service.
 Provides filtered search over a user's card collection.
 """
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from forgebreaker.models.collection import Collection
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -41,8 +44,8 @@ def search_collection(
         collection: User's card collection
         card_db: Scryfall card database {name: card_data}
         name_contains: Filter cards with this text in name (case-insensitive)
-        card_type: Filter by type line (e.g., "Creature", "Enchantment", "Shrine")
-        colors: Filter by color identity (e.g., ["R", "W"])
+        card_type: Filter by type line substring (e.g., "Creature", "Dragon", "Shrine")
+        colors: Filter by color identity (e.g., ["R", "W"]) - uses Scryfall color_identity
         set_code: Filter by set (e.g., "DMU", "M21")
         rarity: Filter by rarity ("common", "uncommon", "rare", "mythic")
         min_quantity: Only return cards owned in at least this quantity
@@ -56,6 +59,15 @@ def search_collection(
         [CardSearchResult(name="Sanctum of Stone Fangs", quantity=4, ...)]
     """
     results: list[CardSearchResult] = []
+    cards_not_in_db: list[str] = []
+
+    # Warn if card database is empty - likely a loading issue
+    if not card_db:
+        logger.warning(
+            "Card database is empty. Collection search will return no results. "
+            "Ensure Scryfall data is downloaded."
+        )
+        return results
 
     for card_name, quantity in collection.cards.items():
         # Skip if below minimum quantity
@@ -65,25 +77,28 @@ def search_collection(
         # Get card data from database
         card_data = card_db.get(card_name)
         if not card_data:
-            # Card not in database, skip (might be a renamed card)
+            # Track cards not in database for logging
+            cards_not_in_db.append(card_name)
             continue
 
         # Apply name filter
         if name_contains and name_contains.lower() not in card_name.lower():
             continue
 
-        # Apply type filter
+        # Apply type filter (matches type line substring, e.g., "Dragon", "Creature")
         if card_type:
             type_line = card_data.get("type_line", "")
             if card_type.lower() not in type_line.lower():
                 continue
 
-        # Apply color filter
+        # Apply color filter using color_identity (not colors from mana cost)
+        # color_identity includes all colors in mana cost + color indicators + abilities
         if colors:
-            card_colors = set(card_data.get("colors", []))
+            # Use color_identity field, fall back to colors if not present
+            card_color_identity = set(card_data.get("color_identity", card_data.get("colors", [])))
             filter_colors = {c.upper() for c in colors}
             # Card must have at least one matching color from the filter
-            if filter_colors and not card_colors.intersection(filter_colors):
+            if filter_colors and not card_color_identity.intersection(filter_colors):
                 continue
 
         # Apply set filter
@@ -101,10 +116,18 @@ def search_collection(
                 quantity=quantity,
                 set_code=card_data.get("set"),
                 rarity=card_data.get("rarity", "common"),
-                colors=card_data.get("colors", []),
+                colors=card_data.get("color_identity", card_data.get("colors", [])),
                 type_line=card_data.get("type_line", ""),
                 mana_cost=card_data.get("mana_cost", ""),
             )
+        )
+
+    # Log cards not found in database (helps diagnose import/database sync issues)
+    if cards_not_in_db:
+        logger.warning(
+            "Found %d cards in collection but not in card database: %s",
+            len(cards_not_in_db),
+            cards_not_in_db[:10],  # Log first 10 to avoid spam
         )
 
     # Sort by quantity descending, then name, then truncate to max_results
