@@ -187,3 +187,212 @@ class TestDeleteCollection:
 
         assert response.status_code == 200
         assert response.json()["deleted"] is False
+
+
+class TestImportCollection:
+    async def test_import_simple_format(self, client: AsyncClient) -> None:
+        """Can import collection from simple text format."""
+        response = await client.post(
+            "/collection/user-123/import",
+            json={"text": "4 Lightning Bolt\n20 Mountain"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["user_id"] == "user-123"
+        assert data["cards_imported"] == 2
+        assert data["cards"]["Lightning Bolt"] == 4
+        assert data["cards"]["Mountain"] == 20
+
+    async def test_import_empty_text_rejected(self, client: AsyncClient) -> None:
+        """Empty import text is rejected."""
+        response = await client.post(
+            "/collection/user-123/import",
+            json={"text": ""},
+        )
+
+        assert response.status_code == 400
+        assert "empty" in response.json()["detail"].lower()
+
+    async def test_import_merge_mode(self, client: AsyncClient) -> None:
+        """Merge mode keeps max quantity from both sources."""
+        # Create initial collection
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"Lightning Bolt": 4, "Mountain": 10}},
+        )
+
+        # Import with merge (Mountain 20 > 10, but Lightning Bolt 2 < 4)
+        response = await client.post(
+            "/collection/user-123/import",
+            json={"text": "2 Lightning Bolt\n20 Mountain", "merge": True},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["cards"]["Lightning Bolt"] == 4  # Kept existing (4 > 2)
+        assert data["cards"]["Mountain"] == 20  # Used import (20 > 10)
+
+
+class TestCollectionStats:
+    async def test_stats_empty_collection(self, client: AsyncClient) -> None:
+        """Returns empty stats for nonexistent collection."""
+        response = await client.get("/collection/new-user/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["user_id"] == "new-user"
+        assert data["total_cards"] == 0
+        assert data["unique_cards"] == 0
+
+    async def test_stats_basic_counts(self, client: AsyncClient) -> None:
+        """Returns basic counts even without card database."""
+        # Create a collection
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"Lightning Bolt": 4, "Mountain": 20}},
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["user_id"] == "user-123"
+        assert data["total_cards"] == 24
+        assert data["unique_cards"] == 2
+
+    async def test_stats_with_mock_card_db(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Returns rarity/color/type breakdowns with mocked card database."""
+        # Mock card database
+        mock_db = {
+            "Lightning Bolt": {
+                "name": "Lightning Bolt",
+                "rarity": "common",
+                "colors": ["R"],
+                "type_line": "Instant",
+            },
+            "Counterspell": {
+                "name": "Counterspell",
+                "rarity": "uncommon",
+                "colors": ["U"],
+                "type_line": "Instant",
+            },
+            "Tarmogoyf": {
+                "name": "Tarmogoyf",
+                "rarity": "mythic",
+                "colors": ["G"],
+                "type_line": "Creature — Lhurgoyf",
+            },
+        }
+
+        monkeypatch.setattr("forgebreaker.api.collection.get_card_database", lambda: mock_db)
+
+        # Create a collection
+        await client.put(
+            "/collection/user-123",
+            json={
+                "cards": {
+                    "Lightning Bolt": 4,
+                    "Counterspell": 2,
+                    "Tarmogoyf": 1,
+                }
+            },
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Check rarity breakdown
+        assert data["by_rarity"]["common"] == 4  # 4 Lightning Bolt
+        assert data["by_rarity"]["uncommon"] == 2  # 2 Counterspell
+        assert data["by_rarity"]["mythic"] == 1  # 1 Tarmogoyf
+
+        # Check color breakdown
+        assert data["by_color"]["R"] == 4  # 4 Lightning Bolt
+        assert data["by_color"]["U"] == 2  # 2 Counterspell
+        assert data["by_color"]["G"] == 1  # 1 Tarmogoyf
+
+        # Check type breakdown
+        assert data["by_type"]["Instant"] == 6  # 4 + 2
+        assert data["by_type"]["Creature"] == 1  # 1 Tarmogoyf
+
+    async def test_stats_multicolor_cards(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Multicolor cards are counted correctly."""
+        mock_db = {
+            "Niv-Mizzet, Parun": {
+                "name": "Niv-Mizzet, Parun",
+                "rarity": "rare",
+                "colors": ["U", "R"],
+                "type_line": "Legendary Creature — Dragon Wizard",
+            },
+        }
+
+        monkeypatch.setattr("forgebreaker.api.collection.get_card_database", lambda: mock_db)
+
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"Niv-Mizzet, Parun": 2}},
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        data = response.json()
+        assert data["by_color"]["multicolor"] == 2
+
+    async def test_stats_colorless_cards(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Colorless cards are counted correctly."""
+        mock_db = {
+            "Sol Ring": {
+                "name": "Sol Ring",
+                "rarity": "uncommon",
+                "colors": [],
+                "type_line": "Artifact",
+            },
+        }
+
+        monkeypatch.setattr("forgebreaker.api.collection.get_card_database", lambda: mock_db)
+
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"Sol Ring": 4}},
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        data = response.json()
+        assert data["by_color"]["colorless"] == 4
+        assert data["by_type"]["Artifact"] == 4
+
+    async def test_stats_nonstandard_rarity(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-standard rarities (special, bonus) are counted as other."""
+        mock_db = {
+            "Black Lotus": {
+                "name": "Black Lotus",
+                "rarity": "special",
+                "colors": [],
+                "type_line": "Artifact",
+            },
+        }
+
+        monkeypatch.setattr("forgebreaker.api.collection.get_card_database", lambda: mock_db)
+
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"Black Lotus": 1}},
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        data = response.json()
+        assert data["by_rarity"]["other"] == 1
+        assert data["by_rarity"]["common"] == 0

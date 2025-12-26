@@ -18,6 +18,12 @@ from forgebreaker.db import (
 )
 from forgebreaker.db.database import get_session
 from forgebreaker.parsers.collection_import import parse_collection_text
+from forgebreaker.services.card_database import (
+    get_card_colors,
+    get_card_database,
+    get_card_rarity,
+    get_card_type,
+)
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
@@ -72,6 +78,52 @@ class DeleteResponse(BaseModel):
     """Response model for delete operations."""
 
     deleted: bool
+
+
+class CollectionStatsResponse(BaseModel):
+    """Response model for detailed collection statistics."""
+
+    user_id: str
+    total_cards: int = 0
+    unique_cards: int = 0
+    by_rarity: dict[str, int] = Field(
+        default_factory=dict,
+        description="Card counts by rarity (common, uncommon, rare, mythic)",
+    )
+    by_color: dict[str, int] = Field(
+        default_factory=dict,
+        description="Card counts by color (W, U, B, R, G, colorless, multicolor)",
+    )
+    by_type: dict[str, int] = Field(
+        default_factory=dict,
+        description="Card counts by primary type (Creature, Instant, etc.)",
+    )
+
+
+def _extract_primary_type(type_line: str) -> str:
+    """Extract primary card type from type line."""
+    if not type_line:
+        return "Unknown"
+
+    # Handle double-faced cards (take first face)
+    type_line = type_line.split("//")[0].strip()
+
+    # Order matters - check by priority order (first match wins)
+    type_order = [
+        "Creature",
+        "Planeswalker",
+        "Instant",
+        "Sorcery",
+        "Enchantment",
+        "Artifact",
+        "Land",
+    ]
+
+    for card_type in type_order:
+        if card_type in type_line:
+            return card_type
+
+    return "Other"
 
 
 @router.get("/{user_id}", response_model=CollectionResponse)
@@ -205,4 +257,90 @@ async def import_user_collection(
         cards_imported=len(parsed_cards),
         total_cards=model.total_cards(),
         cards=model.cards,
+    )
+
+
+@router.get("/{user_id}/stats", response_model=CollectionStatsResponse)
+async def get_collection_stats(
+    user_id: str,
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> CollectionStatsResponse:
+    """
+    Get detailed statistics about a user's collection.
+
+    Returns breakdowns by rarity, color, and card type when the card database
+    is available. Falls back to basic counts (total and unique cards) if the
+    card database is unavailable.
+    """
+    db_collection = await get_collection(session, user_id)
+
+    if db_collection is None:
+        return CollectionStatsResponse(user_id=user_id)
+
+    collection = collection_to_model(db_collection)
+
+    # Try to load card database for detailed stats
+    try:
+        card_db = get_card_database()
+    except FileNotFoundError:
+        # Return basic stats if card database not available
+        return CollectionStatsResponse(
+            user_id=user_id,
+            total_cards=collection.total_cards(),
+            unique_cards=collection.unique_cards(),
+        )
+
+    # Calculate breakdowns
+    by_rarity: dict[str, int] = {
+        "common": 0,
+        "uncommon": 0,
+        "rare": 0,
+        "mythic": 0,
+        "other": 0,
+    }
+    by_color: dict[str, int] = {
+        "W": 0,
+        "U": 0,
+        "B": 0,
+        "R": 0,
+        "G": 0,
+        "colorless": 0,
+        "multicolor": 0,
+        "other": 0,
+    }
+    by_type: dict[str, int] = {}
+
+    for card_name, quantity in collection.cards.items():
+        # Rarity (handles special/bonus rarities via "other")
+        rarity = get_card_rarity(card_name, card_db)
+        if rarity in by_rarity and rarity != "other":
+            by_rarity[rarity] += quantity
+        else:
+            by_rarity["other"] += quantity
+
+        # Colors (handles non-WUBRG colors via "other")
+        colors = get_card_colors(card_name, card_db)
+        if not colors:
+            by_color["colorless"] += quantity
+        elif len(colors) > 1:
+            by_color["multicolor"] += quantity
+        else:
+            color = colors[0]
+            if color in by_color and color not in ("colorless", "multicolor", "other"):
+                by_color[color] += quantity
+            else:
+                by_color["other"] += quantity
+
+        # Type
+        type_line = get_card_type(card_name, card_db)
+        primary_type = _extract_primary_type(type_line)
+        by_type[primary_type] = by_type.get(primary_type, 0) + quantity
+
+    return CollectionStatsResponse(
+        user_id=user_id,
+        total_cards=collection.total_cards(),
+        unique_cards=collection.unique_cards(),
+        by_rarity=by_rarity,
+        by_color=by_color,
+        by_type=by_type,
     )
