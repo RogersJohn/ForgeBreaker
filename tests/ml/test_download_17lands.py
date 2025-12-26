@@ -99,6 +99,23 @@ class TestDownloadBehavior:
         with pytest.raises(DownloadError, match="Failed to download"):
             await download_file("BLB", "PremierDraft", tmp_path)
 
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_force_redownloads_existing_file(self, tmp_path: Path) -> None:
+        """force=True re-downloads even when file exists."""
+        # Create existing file with old content
+        existing_path = generate_file_path("BLB", "PremierDraft", tmp_path)
+        existing_path.write_bytes(b"old content")
+
+        # Mock HTTP response with new content
+        url = construct_17lands_url("BLB", "PremierDraft")
+        respx.get(url).mock(return_value=httpx.Response(200, content=b"new content"))
+
+        result_path = await download_file("BLB", "PremierDraft", tmp_path, force=True)
+
+        assert result_path == existing_path
+        assert result_path.read_bytes() == b"new content"
+
 
 class TestBatchOperations:
     """Tests for batch download operations."""
