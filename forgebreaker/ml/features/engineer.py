@@ -7,7 +7,6 @@ from typing import Any
 
 import pandas as pd
 
-
 # Feature names for the model
 FEATURES = [
     # Deck composition
@@ -73,9 +72,7 @@ def count_total_cards(df: pd.DataFrame) -> pd.Series:
     return df[deck_cols].sum(axis=1)
 
 
-def count_card_types(
-    df: pd.DataFrame, card_data: dict[str, dict[str, Any]]
-) -> pd.DataFrame:
+def count_card_types(df: pd.DataFrame, card_data: dict[str, dict[str, Any]]) -> pd.DataFrame:
     """Count cards by type (creatures, lands, spells).
 
     Args:
@@ -103,11 +100,13 @@ def count_card_types(
         else:
             spells += df[col]
 
-    return pd.DataFrame({
-        "n_creatures": creatures,
-        "n_lands": lands,
-        "n_noncreature_spells": spells,
-    })
+    return pd.DataFrame(
+        {
+            "n_creatures": creatures,
+            "n_lands": lands,
+            "n_noncreature_spells": spells,
+        }
+    )
 
 
 def calculate_average_mana_value(
@@ -141,9 +140,7 @@ def calculate_average_mana_value(
     return total_mv / total_nonland_cards.replace(0, 1)
 
 
-def calculate_mana_curve(
-    df: pd.DataFrame, card_data: dict[str, dict[str, Any]]
-) -> pd.DataFrame:
+def calculate_mana_curve(df: pd.DataFrame, card_data: dict[str, dict[str, Any]]) -> pd.DataFrame:
     """Calculate mana curve distribution.
 
     Args:
@@ -188,9 +185,7 @@ def calculate_mana_curve(
     return pd.DataFrame(curve)
 
 
-def extract_colors(
-    df: pd.DataFrame, card_data: dict[str, dict[str, Any]]
-) -> pd.DataFrame:
+def extract_colors(df: pd.DataFrame, card_data: dict[str, dict[str, Any]]) -> pd.DataFrame:
     """Extract deck colors as one-hot encoding.
 
     Args:
@@ -219,9 +214,7 @@ def extract_colors(
     return pd.DataFrame(colors)
 
 
-def engineer_features(
-    df: pd.DataFrame, card_data: dict[str, dict[str, Any]]
-) -> pd.DataFrame:
+def engineer_features(df: pd.DataFrame, card_data: dict[str, dict[str, Any]]) -> pd.DataFrame:
     """Engineer all features from 17Lands data.
 
     Args:

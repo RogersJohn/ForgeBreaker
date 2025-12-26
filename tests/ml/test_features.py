@@ -4,15 +4,15 @@ import pandas as pd
 import pytest
 
 from forgebreaker.ml.features.engineer import (
-    extract_deck_card_columns,
-    count_total_cards,
-    count_card_types,
-    calculate_average_mana_value,
-    calculate_mana_curve,
-    extract_colors,
-    engineer_features,
     FEATURES,
     TARGET,
+    calculate_average_mana_value,
+    calculate_mana_curve,
+    count_card_types,
+    count_total_cards,
+    engineer_features,
+    extract_colors,
+    extract_deck_card_columns,
 )
 
 
@@ -31,21 +31,23 @@ def sample_card_data() -> dict:
 @pytest.fixture
 def sample_df() -> pd.DataFrame:
     """Sample 17Lands-style DataFrame."""
-    return pd.DataFrame({
-        "expansion": ["BLB", "BLB"],
-        "event_type": ["PremierDraft", "PremierDraft"],
-        "draft_id": ["abc", "def"],
-        "game_time": ["2024-01-01", "2024-01-01"],
-        "won": [1, 0],
-        "on_play": [1, 0],
-        "num_mulligans": [0, 1],
-        "user_game_win_rate_bucket": [0.5, 0.45],
-        "deck_Lightning_Bolt": [4, 3],
-        "deck_Llanowar_Elves": [4, 0],
-        "deck_Mountain": [17, 18],
-        "deck_Shivan_Dragon": [2, 1],
-        "deck_Giant_Growth": [0, 2],
-    })
+    return pd.DataFrame(
+        {
+            "expansion": ["BLB", "BLB"],
+            "event_type": ["PremierDraft", "PremierDraft"],
+            "draft_id": ["abc", "def"],
+            "game_time": ["2024-01-01", "2024-01-01"],
+            "won": [1, 0],
+            "on_play": [1, 0],
+            "num_mulligans": [0, 1],
+            "user_game_win_rate_bucket": [0.5, 0.45],
+            "deck_Lightning_Bolt": [4, 3],
+            "deck_Llanowar_Elves": [4, 0],
+            "deck_Mountain": [17, 18],
+            "deck_Shivan_Dragon": [2, 1],
+            "deck_Giant_Growth": [0, 2],
+        }
+    )
 
 
 class TestExtractDeckColumns:
@@ -102,9 +104,7 @@ class TestCalculateManaValue:
 class TestManaCurve:
     """Tests for mana curve calculations."""
 
-    def test_calculates_mana_curve(
-        self, sample_df: pd.DataFrame, sample_card_data: dict
-    ) -> None:
+    def test_calculates_mana_curve(self, sample_df: pd.DataFrame, sample_card_data: dict) -> None:
         """Calculates counts at each point in the curve."""
         curve = calculate_mana_curve(sample_df, sample_card_data)
         # Row 1: 1-drops: 4 Lightning + 4 Llanowar = 8
@@ -116,9 +116,7 @@ class TestManaCurve:
 class TestExtractColors:
     """Tests for color extraction."""
 
-    def test_extracts_color_pair(
-        self, sample_df: pd.DataFrame, sample_card_data: dict
-    ) -> None:
+    def test_extracts_color_pair(self, sample_df: pd.DataFrame, sample_card_data: dict) -> None:
         """Extracts deck colors as one-hot encoding."""
         colors = extract_colors(sample_df, sample_card_data)
         # Row 1 has R (Lightning, Shivan) and G (Llanowar)
@@ -143,18 +141,14 @@ class TestEngineerFeatures:
         assert features["on_play"].iloc[0] == 1
         assert features["num_mulligans"].iloc[1] == 1
 
-    def test_creates_target_column(
-        self, sample_df: pd.DataFrame, sample_card_data: dict
-    ) -> None:
+    def test_creates_target_column(self, sample_df: pd.DataFrame, sample_card_data: dict) -> None:
         """Creates binary 'won' target column."""
         features = engineer_features(sample_df, sample_card_data)
         assert TARGET in features.columns
         assert features[TARGET].iloc[0] == 1
         assert features[TARGET].iloc[1] == 0
 
-    def test_output_is_numeric(
-        self, sample_df: pd.DataFrame, sample_card_data: dict
-    ) -> None:
+    def test_output_is_numeric(self, sample_df: pd.DataFrame, sample_card_data: dict) -> None:
         """All feature columns are numeric."""
         features = engineer_features(sample_df, sample_card_data)
         for col in FEATURES:
