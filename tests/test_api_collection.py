@@ -370,3 +370,29 @@ class TestCollectionStats:
         data = response.json()
         assert data["by_color"]["colorless"] == 4
         assert data["by_type"]["Artifact"] == 4
+
+    async def test_stats_nonstandard_rarity(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Non-standard rarities (special, bonus) are counted as other."""
+        mock_db = {
+            "Black Lotus": {
+                "name": "Black Lotus",
+                "rarity": "special",
+                "colors": [],
+                "type_line": "Artifact",
+            },
+        }
+
+        monkeypatch.setattr("forgebreaker.api.collection.get_card_database", lambda: mock_db)
+
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"Black Lotus": 1}},
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        data = response.json()
+        assert data["by_rarity"]["other"] == 1
+        assert data["by_rarity"]["common"] == 0

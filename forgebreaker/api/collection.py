@@ -108,7 +108,7 @@ def _extract_primary_type(type_line: str) -> str:
     # Handle double-faced cards (take first face)
     type_line = type_line.split("//")[0].strip()
 
-    # Order matters - check most specific first
+    # Order matters - check by priority order (first match wins)
     type_order = [
         "Creature",
         "Planeswalker",
@@ -268,8 +268,9 @@ async def get_collection_stats(
     """
     Get detailed statistics about a user's collection.
 
-    Returns breakdowns by rarity, color, and card type.
-    Requires the card database to be downloaded.
+    Returns breakdowns by rarity, color, and card type when the card database
+    is available. Falls back to basic counts (total and unique cards) if the
+    card database is unavailable.
     """
     db_collection = await get_collection(session, user_id)
 
@@ -290,7 +291,13 @@ async def get_collection_stats(
         )
 
     # Calculate breakdowns
-    by_rarity: dict[str, int] = {"common": 0, "uncommon": 0, "rare": 0, "mythic": 0}
+    by_rarity: dict[str, int] = {
+        "common": 0,
+        "uncommon": 0,
+        "rare": 0,
+        "mythic": 0,
+        "other": 0,
+    }
     by_color: dict[str, int] = {
         "W": 0,
         "U": 0,
@@ -299,16 +306,19 @@ async def get_collection_stats(
         "G": 0,
         "colorless": 0,
         "multicolor": 0,
+        "other": 0,
     }
     by_type: dict[str, int] = {}
 
     for card_name, quantity in collection.cards.items():
-        # Rarity
+        # Rarity (handles special/bonus rarities via "other")
         rarity = get_card_rarity(card_name, card_db)
-        if rarity in by_rarity:
+        if rarity in by_rarity and rarity != "other":
             by_rarity[rarity] += quantity
+        else:
+            by_rarity["other"] += quantity
 
-        # Colors
+        # Colors (handles non-WUBRG colors via "other")
         colors = get_card_colors(card_name, card_db)
         if not colors:
             by_color["colorless"] += quantity
@@ -316,8 +326,10 @@ async def get_collection_stats(
             by_color["multicolor"] += quantity
         else:
             color = colors[0]
-            if color in by_color:
+            if color in by_color and color not in ("colorless", "multicolor", "other"):
                 by_color[color] += quantity
+            else:
+                by_color["other"] += quantity
 
         # Type
         type_line = get_card_type(card_name, card_db)
