@@ -67,7 +67,7 @@ function HelpPanel({ onClose }: { onClose: () => void }) {
           </h4>
           <button
             onClick={onClose}
-            className="p-2 rounded-lg hover:opacity-80 transition-opacity"
+            className="p-2 rounded-lg hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)]"
             style={{ color: 'var(--color-text-secondary)' }}
             aria-label="Close help"
           >
@@ -185,7 +185,7 @@ export function ChatAdvisor({ userId }: ChatAdvisorProps) {
         </div>
         <button
           onClick={() => setShowHelp(true)}
-          className="p-2 rounded-lg hover:opacity-80 transition-opacity"
+          className="p-2 rounded-lg hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)]"
           style={{ color: 'var(--color-text-secondary)' }}
           aria-label="Show help"
           title="What can I ask?"
@@ -228,7 +228,7 @@ export function ChatAdvisor({ userId }: ChatAdvisorProps) {
             </div>
             <button
               onClick={() => setShowHelp(true)}
-              className="hover:opacity-80 transition-opacity underline"
+              className="hover:opacity-80 transition-opacity underline focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] focus:ring-offset-2 rounded"
               style={{ color: 'var(--color-accent-primary)' }}
             >
               See all things I can help with
@@ -274,7 +274,7 @@ export function ChatAdvisor({ userId }: ChatAdvisorProps) {
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask about deck building..."
             disabled={isPending}
-            className="flex-1 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#e94560] disabled:opacity-50"
+            className="flex-1 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--color-accent-primary)] disabled:opacity-50 placeholder:text-gray-500"
             style={{
               backgroundColor: 'var(--color-bg-elevated)',
               border: '1px solid var(--color-border)',
@@ -284,7 +284,7 @@ export function ChatAdvisor({ userId }: ChatAdvisorProps) {
           <button
             type="submit"
             disabled={!input.trim() || isPending}
-            className="px-6 py-3 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-6 py-3 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2"
             style={{ backgroundColor: 'var(--color-accent-primary)', color: 'white' }}
           >
             Send
