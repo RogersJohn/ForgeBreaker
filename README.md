@@ -178,7 +178,7 @@ Response:
 curl http://localhost:8000/decks/standard
 ```
 
-Response:
+Response (cards/sideboard truncated for brevity):
 ```json
 {
   "format": "standard",
@@ -187,8 +187,11 @@ Response:
       "name": "Mono Red Aggro",
       "archetype": "Aggro",
       "format": "standard",
+      "cards": {"Monastery Swiftspear": 4, "Play with Fire": 4},
+      "sideboard": {"Roiling Vortex": 2},
       "win_rate": 0.54,
-      "meta_share": 0.12
+      "meta_share": 0.12,
+      "source_url": "https://mtggoldfish.com/..."
     }
   ],
   "count": 1
@@ -230,6 +233,19 @@ curl -X POST http://localhost:8000/chat/ \
     "user_id": "user123",
     "messages": [{"role": "user", "content": "What meta decks can I build?"}]
   }'
+```
+
+Response:
+```json
+{
+  "message": {
+    "role": "assistant",
+    "content": "Based on your collection, here are the meta decks you're closest to completing..."
+  },
+  "tool_calls": [
+    {"name": "get_deck_recommendations", "input": {"format": "standard"}}
+  ]
+}
 ```
 
 ## Environment Variables
