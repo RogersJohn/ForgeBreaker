@@ -136,7 +136,7 @@ class TestExportToOnnx:
     """Tests for ONNX export."""
 
     def test_exports_to_onnx(self, sample_features: pd.DataFrame, tmp_path: Path) -> None:
-        """Exports model to ONNX format."""
+        """Exports model to ONNX format with f-name mapping."""
         train, val, _ = split_by_draft_id(sample_features)
         feature_cols = [c for c in train.columns if c not in ["won", "draft_id"]]
 
@@ -148,10 +148,14 @@ class TestExportToOnnx:
         )
 
         onnx_path = tmp_path / "model.onnx"
-        export_to_onnx(model, feature_cols, onnx_path)
+        feature_mapping = export_to_onnx(model, feature_cols, onnx_path)
 
         assert onnx_path.exists()
         assert onnx_path.stat().st_size > 0
+        # Verify feature mapping
+        assert len(feature_mapping) == len(feature_cols)
+        assert feature_mapping["f0"] == feature_cols[0]
+        assert feature_mapping[f"f{len(feature_cols) - 1}"] == feature_cols[-1]
 
     def test_onnx_produces_same_predictions(
         self, sample_features: pd.DataFrame, tmp_path: Path

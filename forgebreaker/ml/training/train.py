@@ -129,13 +129,19 @@ def export_to_onnx(
     model: XGBClassifier,
     feature_names: list[str],
     output_path: Path,
-) -> None:
+) -> dict[str, str]:
     """Export model to ONNX format.
+
+    Renames features to f0, f1, f2... format required by onnxmltools.
+    Returns mapping from f-names to original names for metadata.
 
     Args:
         model: Trained XGBoost model
-        feature_names: List of feature names
+        feature_names: List of original feature names
         output_path: Path to save ONNX model
+
+    Returns:
+        Mapping from f-names (f0, f1, ...) to original feature names
 
     Raises:
         ImportError: If onnxmltools not available
@@ -148,20 +154,35 @@ def export_to_onnx(
             "onnxmltools required for ONNX export. Install with: pip install onnxmltools"
         ) from e
 
-    # Define input type
-    initial_type = [("input", FloatTensorType([None, len(feature_names)]))]
+    # Create f-name mapping (onnxmltools requires f0, f1, f2... format)
+    f_names = [f"f{i}" for i in range(len(feature_names))]
+    feature_mapping = dict(zip(f_names, feature_names, strict=True))
 
-    # Convert to ONNX using onnxmltools (has XGBoost support)
-    onnx_model = convert_xgboost(
-        model,
-        initial_types=initial_type,
-        target_opset=12,
-    )
+    # Temporarily update model's feature names for conversion
+    booster = model.get_booster()
+    original_names = booster.feature_names
+    booster.feature_names = f_names
 
-    # Save model
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "wb") as f:
-        f.write(onnx_model.SerializeToString())
+    try:
+        # Define input type
+        initial_type = [("input", FloatTensorType([None, len(feature_names)]))]
+
+        # Convert to ONNX using onnxmltools (has XGBoost support)
+        onnx_model = convert_xgboost(
+            model,
+            initial_types=initial_type,
+            target_opset=12,
+        )
+
+        # Save model
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "wb") as f:
+            f.write(onnx_model.SerializeToString())
+    finally:
+        # Restore original feature names
+        booster.feature_names = original_names
+
+    return feature_mapping
 
 
 def save_metadata(
