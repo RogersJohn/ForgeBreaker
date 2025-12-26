@@ -5,7 +5,7 @@ Transforms 17Lands game data into ML-ready features.
 
 from typing import Any
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 
 # Feature names for the model
 FEATURES = [

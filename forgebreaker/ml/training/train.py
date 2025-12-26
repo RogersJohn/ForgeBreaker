@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import pandas as pd
-from sklearn.metrics import accuracy_score, roc_auc_score
+import pandas as pd  # type: ignore[import-untyped]
+from sklearn.metrics import accuracy_score, roc_auc_score  # type: ignore[import-untyped]
 from xgboost import XGBClassifier
 
 # Model hyperparameters
@@ -141,8 +141,8 @@ def export_to_onnx(
         ImportError: If skl2onnx or onnxmltools not available
     """
     try:
-        from skl2onnx import convert_sklearn
-        from skl2onnx.common.data_types import FloatTensorType
+        from skl2onnx import convert_sklearn  # type: ignore[import-untyped,import-not-found]
+        from skl2onnx.common.data_types import FloatTensorType  # type: ignore[import-untyped,import-not-found]
     except ImportError as e:
         raise ImportError(
             "skl2onnx required for ONNX export. Install with: pip install skl2onnx"
