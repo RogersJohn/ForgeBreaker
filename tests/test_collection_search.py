@@ -563,9 +563,7 @@ class TestCardsNotInDatabase:
         import logging
 
         card_db = {"Some Other Card": {"type_line": "Instant", "colors": ["R"]}}
-        collection = Collection(
-            cards={"Unknown Card 1": 4, "Unknown Card 2": 2}
-        )
+        collection = Collection(cards={"Unknown Card 1": 4, "Unknown Card 2": 2})
 
         with caplog.at_level(logging.WARNING):
             results = search_collection(collection, card_db)
