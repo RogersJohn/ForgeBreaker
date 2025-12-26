@@ -282,12 +282,13 @@ def _parse_pt(value: str) -> int | None:
     """
     Parse power/toughness value to int.
 
-    Returns None for non-numeric values like "*" or "1+*".
+    Returns None for purely variable values like "*".
+    For values like "1+*" or "2+*", extracts the base number (1, 2).
     """
     if not value:
         return None
     # Handle simple numeric values
-    if value.isdigit() or (value.startswith("-") and value[1:].isdigit()):
+    if value.isdigit() or (value.startswith("-") and len(value) > 1 and value[1:].isdigit()):
         return int(value)
     # Try to extract leading number (e.g., "2" from "2+*")
     match = re.match(r"^(-?\d+)", value)
@@ -332,7 +333,7 @@ def format_search_results(
 
         if include_details:
             details = []
-            if card.cmc:
+            if card.cmc is not None:
                 details.append(f"CMC: {int(card.cmc)}")
             if card.keywords:
                 details.append(f"Keywords: {', '.join(card.keywords)}")
