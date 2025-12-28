@@ -16,7 +16,7 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
   }
 
   return (
-    <div className="min-h-[calc(100vh-120px)] flex flex-col items-center justify-center px-4">
+    <div className="min-h-[calc(100vh-var(--header-height,120px))] flex flex-col items-center justify-center px-4">
       {/* Hero Section */}
       <div className="max-w-2xl text-center mb-12">
         <h2
