@@ -16,6 +16,8 @@ These tests validate that the AllowedCardSet boundary is enforced
 and that violations fail loudly, not silently.
 """
 
+import dataclasses
+
 import pytest
 
 from forgebreaker.models.allowed_cards import (
@@ -225,7 +227,10 @@ class TestSynergyFinderBoundary:
             "Blood Artist": {
                 "name": "Blood Artist",
                 "type_line": "Creature — Vampire",
-                "oracle_text": "Whenever Blood Artist or another creature dies, target player loses 1 life and you gain 1 life.",
+                "oracle_text": (
+                    "Whenever Blood Artist or another creature dies, "
+                    "target player loses 1 life and you gain 1 life."
+                ),
                 "cmc": 2,
                 "colors": ["B"],
                 "legalities": {"standard": "legal"},
@@ -272,7 +277,7 @@ class TestSynergyFinderBoundary:
         assert result is not None
 
         # All synergistic cards must be from allowed set
-        for name, qty, reason in result.synergistic_cards:
+        for name, _qty, _reason in result.synergistic_cards:
             assert name in standard_legal, (
                 f"Synergy '{name}' is not format-legal"
             )
@@ -304,8 +309,8 @@ class TestBoundaryFailsLoudly:
         allowed = build_allowed_set({"Shock": 2}, {"Shock"}, "standard")
 
         # AllowedCardSet is frozen=True, so attribute reassignment should raise
-        with pytest.raises(Exception):
+        with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
             allowed.format = "modern"  # type: ignore
 
-        with pytest.raises(Exception):
+        with pytest.raises((AttributeError, dataclasses.FrozenInstanceError)):
             allowed.cards = {"Other": 1}  # type: ignore
