@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from forgebreaker.analysis.assumptions import surface_assumptions
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.analysis.ranker import rank_decks, rank_decks_with_ml
+from forgebreaker.analysis.stress import apply_stress, find_breaking_point
 from forgebreaker.db import (
     collection_to_model,
     get_collection,
@@ -22,6 +23,7 @@ from forgebreaker.db import (
     meta_deck_to_model,
 )
 from forgebreaker.models.collection import Collection
+from forgebreaker.models.stress import StressScenario, StressType
 from forgebreaker.services.card_database import (
     get_card_database,
     get_format_legality,
@@ -455,6 +457,74 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["user_id", "format", "deck_name"],
+        },
+    ),
+    ToolDefinition(
+        name="stress_deck_assumption",
+        description=(
+            "Apply stress to a deck to see how it handles adversity. "
+            "Use when a user asks 'what if I don't draw X?', "
+            "'what happens if my key card is removed?', "
+            "'how does this deck handle mana problems?', or 'stress test this deck'. "
+            "Returns before/after fragility comparison and recommendations."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "description": "Game format the deck belongs to",
+                },
+                "deck_name": {
+                    "type": "string",
+                    "description": "Name of the meta deck to stress test",
+                },
+                "stress_type": {
+                    "type": "string",
+                    "enum": ["underperform", "missing", "delayed", "hostile_meta"],
+                    "description": (
+                        "Type of stress: underperform (key cards less effective), "
+                        "missing (remove copies of a card), delayed (mana problems), "
+                        "hostile_meta (more opponent interaction)"
+                    ),
+                },
+                "target": {
+                    "type": "string",
+                    "description": (
+                        "What to stress - a card name for 'missing', "
+                        "or 'all' for general stress"
+                    ),
+                },
+                "intensity": {
+                    "type": "number",
+                    "description": "Stress intensity from 0.0 (minimal) to 1.0 (maximum)",
+                    "default": 0.5,
+                },
+            },
+            "required": ["format", "deck_name", "stress_type", "target"],
+        },
+    ),
+    ToolDefinition(
+        name="find_deck_breaking_point",
+        description=(
+            "Find the weakest point in a deck by testing multiple stress scenarios. "
+            "Use when a user asks 'what breaks first in this deck?', "
+            "'what is my deck's biggest weakness?', or 'how resilient is this deck?'. "
+            "Returns the most vulnerable assumption and overall resilience score."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "description": "Game format the deck belongs to",
+                },
+                "deck_name": {
+                    "type": "string",
+                    "description": "Name of the meta deck to analyze",
+                },
+            },
+            "required": ["format", "deck_name"],
         },
     ),
 ]
@@ -1026,6 +1096,124 @@ async def get_deck_assumptions_tool(
     }
 
 
+async def stress_deck_assumption_tool(
+    session: AsyncSession,
+    format_name: str,
+    deck_name: str,
+    stress_type: str,
+    target: str,
+    intensity: float = 0.5,
+) -> dict[str, Any]:
+    """
+    Apply stress to a deck and measure the impact.
+
+    Args:
+        session: Database session
+        format_name: Game format
+        deck_name: Name of the deck to stress
+        stress_type: Type of stress to apply
+        target: What to stress (card name or 'all')
+        intensity: Stress intensity 0.0-1.0
+
+    Returns:
+        Dict with stress results and recommendations
+    """
+    # Get the deck
+    db_deck = await get_meta_deck(session, deck_name, format_name)
+    if db_deck is None:
+        return {"error": f"Deck '{deck_name}' not found in {format_name}"}
+
+    deck = meta_deck_to_model(db_deck)
+    card_db = _get_card_db_safe()
+
+    # Parse stress type
+    try:
+        stress_type_enum = StressType(stress_type)
+    except ValueError:
+        return {
+            "error": f"Invalid stress type '{stress_type}'. "
+            f"Valid types: {', '.join(t.value for t in StressType)}"
+        }
+
+    # Create and apply scenario
+    scenario = StressScenario(
+        stress_type=stress_type_enum,
+        target=target,
+        intensity=intensity,
+        description=f"Stress test: {stress_type} on {target}",
+    )
+
+    result = apply_stress(deck, card_db, scenario)
+
+    return {
+        "deck_name": result.deck_name,
+        "stress_type": result.scenario.stress_type.value,
+        "target": result.scenario.target,
+        "intensity": result.scenario.intensity,
+        "original_fragility": round(result.original_fragility, 2),
+        "stressed_fragility": round(result.stressed_fragility, 2),
+        "fragility_change": round(result.fragility_change(), 2),
+        "breaking_point": result.breaking_point,
+        "affected_assumptions": [
+            {
+                "name": a.name,
+                "original_value": a.original_value,
+                "stressed_value": a.stressed_value,
+                "original_health": a.original_health,
+                "stressed_health": a.stressed_health,
+                "change_explanation": a.change_explanation,
+            }
+            for a in result.affected_assumptions
+        ],
+        "explanation": result.explanation,
+        "recommendations": result.recommendations,
+    }
+
+
+async def find_deck_breaking_point_tool(
+    session: AsyncSession,
+    format_name: str,
+    deck_name: str,
+) -> dict[str, Any]:
+    """
+    Find the weakest point in a deck.
+
+    Args:
+        session: Database session
+        format_name: Game format
+        deck_name: Name of the deck to analyze
+
+    Returns:
+        Dict with breaking point analysis
+    """
+    # Get the deck
+    db_deck = await get_meta_deck(session, deck_name, format_name)
+    if db_deck is None:
+        return {"error": f"Deck '{deck_name}' not found in {format_name}"}
+
+    deck = meta_deck_to_model(db_deck)
+    card_db = _get_card_db_safe()
+
+    analysis = find_breaking_point(deck, card_db)
+
+    breaking_scenario = None
+    if analysis.breaking_scenario:
+        breaking_scenario = {
+            "stress_type": analysis.breaking_scenario.stress_type.value,
+            "target": analysis.breaking_scenario.target,
+            "intensity": analysis.breaking_scenario.intensity,
+        }
+
+    return {
+        "deck_name": analysis.deck_name,
+        "weakest_assumption": analysis.weakest_assumption,
+        "breaking_intensity": round(analysis.breaking_intensity, 2),
+        "resilience_score": round(analysis.resilience_score, 2),
+        "breaking_scenario": breaking_scenario,
+        "explanation": analysis.explanation,
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -1144,6 +1332,21 @@ async def execute_tool(
         )
     elif tool_name == "get_deck_assumptions":
         return await get_deck_assumptions_tool(
+            session,
+            format_name=arguments["format"],
+            deck_name=arguments["deck_name"],
+        )
+    elif tool_name == "stress_deck_assumption":
+        return await stress_deck_assumption_tool(
+            session,
+            format_name=arguments["format"],
+            deck_name=arguments["deck_name"],
+            stress_type=arguments["stress_type"],
+            target=arguments["target"],
+            intensity=arguments.get("intensity", 0.5),
+        )
+    elif tool_name == "find_deck_breaking_point":
+        return await find_deck_breaking_point_tool(
             session,
             format_name=arguments["format"],
             deck_name=arguments["deck_name"],

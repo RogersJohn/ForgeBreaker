@@ -101,6 +101,46 @@ export interface AssumptionSetResponse {
   fragility_explanation: string
 }
 
+export type StressType = 'underperform' | 'missing' | 'delayed' | 'hostile_meta'
+
+export interface StressScenarioRequest {
+  stress_type: StressType
+  target: string
+  intensity?: number
+}
+
+export interface StressedAssumption {
+  name: string
+  original_value: unknown
+  stressed_value: unknown
+  original_health: string
+  stressed_health: string
+  change_explanation: string
+}
+
+export interface StressResultResponse {
+  deck_name: string
+  stress_type: string
+  target: string
+  intensity: number
+  original_fragility: number
+  stressed_fragility: number
+  fragility_change: number
+  affected_assumptions: StressedAssumption[]
+  breaking_point: boolean
+  explanation: string
+  recommendations: string[]
+}
+
+export interface BreakingPointResponse {
+  deck_name: string
+  weakest_assumption: string
+  breaking_intensity: number
+  resilience_score: number
+  breaking_scenario: StressScenarioRequest | null
+  explanation: string
+}
+
 class ApiClient {
   private baseUrl: string
 
@@ -193,6 +233,32 @@ class ApiClient {
   ): Promise<AssumptionSetResponse> {
     return this.request(
       `/assumptions/${userId}/${format}/${encodeURIComponent(deckName)}`
+    )
+  }
+
+  // Stress Testing
+  async stressDeck(
+    userId: string,
+    format: string,
+    deckName: string,
+    scenario: StressScenarioRequest
+  ): Promise<StressResultResponse> {
+    return this.request(
+      `/stress/${userId}/${format}/${encodeURIComponent(deckName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(scenario),
+      }
+    )
+  }
+
+  async getBreakingPoint(
+    userId: string,
+    format: string,
+    deckName: string
+  ): Promise<BreakingPointResponse> {
+    return this.request(
+      `/stress/breaking-point/${userId}/${format}/${encodeURIComponent(deckName)}`
     )
   }
 }
