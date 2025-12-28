@@ -149,8 +149,11 @@ class TestFindSynergies:
     ) -> None:
         """Finds cards that synergize with sacrifice theme."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -166,8 +169,11 @@ class TestFindSynergies:
     ) -> None:
         """Blood Artist found as synergy (has 'dies' trigger)."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -182,8 +188,11 @@ class TestFindSynergies:
     ) -> None:
         """Witch's Oven found as synergy (creates food tokens)."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -198,8 +207,11 @@ class TestFindSynergies:
     ) -> None:
         """Source card is not included in synergistic cards."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -214,8 +226,11 @@ class TestFindSynergies:
     ) -> None:
         """Returns None for cards not in database."""
         result = find_synergies(
-            "Unknown Card", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Unknown Card",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is None
@@ -228,8 +243,11 @@ class TestFindSynergies:
     ) -> None:
         """Instants trigger prowess synergies."""
         result = find_synergies(
-            "Lightning Bolt", spells_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Lightning Bolt",
+            spells_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -246,8 +264,11 @@ class TestFindSynergies:
         """Falls back to type-based synergies when no keyword match."""
         # Monastery Swiftspear has prowess but no synergy trigger keywords in oracle
         result = find_synergies(
-            "Monastery Swiftspear", spells_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Monastery Swiftspear",
+            spells_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -262,8 +283,12 @@ class TestFindSynergies:
     ) -> None:
         """Respects max_results parameter."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards, max_results=1,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
+            max_results=1,
         )
 
         assert result is not None
@@ -277,8 +302,11 @@ class TestFindSynergies:
     ) -> None:
         """Results include quantity owned."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -294,8 +322,11 @@ class TestFindSynergies:
     ) -> None:
         """Results include reason for synergy."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -314,8 +345,11 @@ class TestFormatSynergyResults:
     ) -> None:
         """Formats results with synergistic cards."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
         assert result is not None
 
@@ -344,8 +378,11 @@ class TestFormatSynergyResults:
     ) -> None:
         """Formatted output includes quantities."""
         result = find_synergies(
-            "Mayhem Devil", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Mayhem Devil",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
         assert result is not None
 
@@ -372,8 +409,11 @@ class TestSynergyPatterns:
         )
 
         result = find_synergies(
-            "Graveyard Trespasser", collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Graveyard Trespasser",
+            collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None
@@ -389,8 +429,11 @@ class TestSynergyPatterns:
     ) -> None:
         """Detects artifact type synergies."""
         result = find_synergies(
-            "Witch's Oven", sacrifice_collection, card_db,
-            DEFAULT_FORMAT, format_legal_cards,
+            "Witch's Oven",
+            sacrifice_collection,
+            card_db,
+            DEFAULT_FORMAT,
+            format_legal_cards,
         )
 
         assert result is not None

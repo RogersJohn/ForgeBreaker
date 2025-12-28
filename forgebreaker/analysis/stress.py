@@ -513,8 +513,10 @@ def _apply_hostile_meta_stress(
         effective_shortfall = needed_increase
 
         new_health = (
-            AssumptionHealth.CRITICAL if effective_shortfall > 4
-            else AssumptionHealth.WARNING if effective_shortfall > 2
+            AssumptionHealth.CRITICAL
+            if effective_shortfall > 4
+            else AssumptionHealth.WARNING
+            if effective_shortfall > 2
             else removal_assumption.health
         )
 
@@ -607,22 +609,18 @@ def _apply_hostile_meta_stress(
     )
 
 
-def _recalculate_health(
-    value: float, min_typical: float, max_typical: float
-) -> AssumptionHealth:
+def _recalculate_health(value: float, min_typical: float, max_typical: float) -> AssumptionHealth:
     """Recalculate health for a new value against typical range."""
     if min_typical <= value <= max_typical:
         return AssumptionHealth.HEALTHY
 
     if value < min_typical:
         deviation = (
-            (min_typical - value) / min_typical if min_typical > 0
-            else abs(min_typical - value)
+            (min_typical - value) / min_typical if min_typical > 0 else abs(min_typical - value)
         )
     else:
         deviation = (
-            (value - max_typical) / max_typical if max_typical > 0
-            else abs(value - max_typical)
+            (value - max_typical) / max_typical if max_typical > 0 else abs(value - max_typical)
         )
 
     if deviation > 0.25:
@@ -640,14 +638,9 @@ def _calculate_stressed_fragility(
     base_fragility = baseline.overall_fragility
 
     # Count health degradations
-    degradations = sum(
-        1 for a in affected
-        if a.stressed_health != a.original_health
-    )
+    degradations = sum(1 for a in affected if a.stressed_health != a.original_health)
 
-    critical_count = sum(
-        1 for a in affected if a.stressed_health == "critical"
-    )
+    critical_count = sum(1 for a in affected if a.stressed_health == "critical")
 
     # Fragility increases based on degradations and intensity
     increase = (degradations * 0.1 + critical_count * 0.15) * intensity
@@ -695,9 +688,7 @@ def _generate_underperform_considerations(
     considerations = []
 
     if scenario.intensity > 0.5:
-        considerations.append(
-            "Consider: Are there backup cards that could serve similar roles?"
-        )
+        considerations.append("Consider: Are there backup cards that could serve similar roles?")
 
     draw_assumption = next(
         (a for a in baseline.assumptions if a.name == "Card Selection Density"),
@@ -745,16 +736,12 @@ def _generate_delayed_considerations(baseline: DeckAssumptionSet) -> list[str]:
 
     if land_assumption and isinstance(land_assumption.observed_value, int | float):
         if land_assumption.observed_value < land_assumption.typical_range[0]:
-            considerations.append(
-                "Consider: Would adding more lands reduce mana screw frequency?"
-            )
+            considerations.append("Consider: Would adding more lands reduce mana screw frequency?")
         considerations.append(
             "Consider: Could the mana curve be lowered to reduce land dependency?"
         )
 
-    considerations.append(
-        "Consider: How aggressively should you mulligan for land-heavy hands?"
-    )
+    considerations.append("Consider: How aggressively should you mulligan for land-heavy hands?")
 
     return considerations
 
@@ -773,9 +760,7 @@ def _generate_hostile_meta_considerations(baseline: DeckAssumptionSet) -> list[s
         and isinstance(removal_assumption.observed_value, int | float)
         and removal_assumption.observed_value < 6
     ):
-        considerations.append(
-            "Consider: Would more interaction in the maindeck or sideboard help?"
-        )
+        considerations.append("Consider: Would more interaction in the maindeck or sideboard help?")
 
     considerations.append(
         "Consider: Are there threats with built-in protection (hexproof, ward, etc.)?"

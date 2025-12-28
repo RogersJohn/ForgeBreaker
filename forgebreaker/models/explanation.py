@@ -33,9 +33,7 @@ class OutcomeExplanation:
         """Generate full explanation text."""
         parts = [self.summary]
         if self.assumptions_involved:
-            parts.append(
-                f"This interpretation depends on: {', '.join(self.assumptions_involved)}."
-            )
+            parts.append(f"This interpretation depends on: {', '.join(self.assumptions_involved)}.")
         if self.conditional:
             parts.append(self.conditional)
         return " ".join(parts)
@@ -99,8 +97,7 @@ def create_completion_explanation(
     else:
         summary = f"Your collection is missing {missing_cards} cards for this deck."
         conditional = (
-            "This count reflects exact matches. "
-            "Functional alternatives are not considered."
+            "This count reflects exact matches. " "Functional alternatives are not considered."
         )
 
     assumptions = []

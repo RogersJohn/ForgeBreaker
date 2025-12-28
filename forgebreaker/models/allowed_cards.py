@@ -159,9 +159,7 @@ def validate_card_list(
 
     for card_name, required_qty in cards.items():
         if card_name not in allowed_set:
-            violations.append(
-                f"'{card_name}' is not in allowed set for {allowed_set.format}"
-            )
+            violations.append(f"'{card_name}' is not in allowed set for {allowed_set.format}")
         elif allowed_set.get_quantity(card_name) < required_qty:
             owned = allowed_set.get_quantity(card_name)
             violations.append(

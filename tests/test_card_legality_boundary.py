@@ -121,9 +121,7 @@ class TestCardValidation:
         assert "Shock" in str(exc_info.value)
         assert "quantity" in str(exc_info.value).lower()
 
-    def test_batch_validation_collects_all_errors(
-        self, allowed_set: AllowedCardSet
-    ) -> None:
+    def test_batch_validation_collects_all_errors(self, allowed_set: AllowedCardSet) -> None:
         """Batch validation returns all violations."""
         cards = {
             "Lightning Bolt": 2,  # Valid
@@ -206,15 +204,15 @@ class TestDeckImproverBoundary:
 
         # If any suggestions exist, they must be from allowed cards
         for suggestion in analysis.suggestions:
-            assert suggestion.add_card in standard_legal, (
-                f"Suggestion '{suggestion.add_card}' is not in allowed set"
-            )
-            assert suggestion.add_card in collection.cards, (
-                f"Suggestion '{suggestion.add_card}' is not owned"
-            )
-            assert suggestion.add_card != "Illegal Card", (
-                "Illegal card was suggested - boundary violated!"
-            )
+            assert (
+                suggestion.add_card in standard_legal
+            ), f"Suggestion '{suggestion.add_card}' is not in allowed set"
+            assert (
+                suggestion.add_card in collection.cards
+            ), f"Suggestion '{suggestion.add_card}' is not owned"
+            assert (
+                suggestion.add_card != "Illegal Card"
+            ), "Illegal card was suggested - boundary violated!"
 
 
 class TestSynergyFinderBoundary:
@@ -278,15 +276,11 @@ class TestSynergyFinderBoundary:
 
         # All synergistic cards must be from allowed set
         for name, _qty, _reason in result.synergistic_cards:
-            assert name in standard_legal, (
-                f"Synergy '{name}' is not format-legal"
-            )
-            assert name in collection.cards, (
-                f"Synergy '{name}' is not owned"
-            )
-            assert name != "Illegal Sacrifice", (
-                "Illegal card was suggested as synergy - boundary violated!"
-            )
+            assert name in standard_legal, f"Synergy '{name}' is not format-legal"
+            assert name in collection.cards, f"Synergy '{name}' is not owned"
+            assert (
+                name != "Illegal Sacrifice"
+            ), "Illegal card was suggested as synergy - boundary violated!"
 
 
 class TestBoundaryFailsLoudly:

@@ -491,8 +491,7 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 "target": {
                     "type": "string",
                     "description": (
-                        "What to stress - a card name for 'missing', "
-                        "or 'all' for general stress"
+                        "What to stress - a card name for 'missing', " "or 'all' for general stress"
                     ),
                 },
                 "intensity": {

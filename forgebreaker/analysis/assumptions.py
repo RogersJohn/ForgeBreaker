@@ -289,9 +289,7 @@ def _surface_key_card_beliefs(
             DeckAssumption(
                 name="Must-Draw Belief",
                 category=AssumptionCategory.KEY_CARDS,
-                description=(
-                    "These are cards you believe the deck needs to draw to function."
-                ),
+                description=("These are cards you believe the deck needs to draw to function."),
                 observed_value=key_cards[:5],
                 typical_range=(0.0, 0.0),  # Not a numeric comparison
                 health=AssumptionHealth.HEALTHY,
@@ -388,9 +386,7 @@ def _surface_interaction_beliefs(
     return assumptions
 
 
-def _compare_to_baseline(
-    value: float, min_typical: float, max_typical: float
-) -> AssumptionHealth:
+def _compare_to_baseline(value: float, min_typical: float, max_typical: float) -> AssumptionHealth:
     """
     Compare a value to conventional baseline.
 

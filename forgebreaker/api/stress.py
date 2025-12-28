@@ -28,14 +28,9 @@ class StressScenarioRequest(BaseModel):
     stress_type: str = Field(
         description="Type of stress: underperform, missing, delayed, hostile_meta"
     )
-    target: str = Field(
-        description="What to stress (card name or assumption category)"
-    )
+    target: str = Field(description="What to stress (card name or assumption category)")
     intensity: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Stress intensity from 0.0 to 1.0"
+        default=0.5, ge=0.0, le=1.0, description="Stress intensity from 0.0 to 1.0"
     )
 
 
@@ -196,8 +191,7 @@ async def stress_deck(
 
 
 @router.get(
-    "/breaking-point/{user_id}/{format_name}/{deck_name}",
-    response_model=BreakingPointResponse
+    "/breaking-point/{user_id}/{format_name}/{deck_name}", response_model=BreakingPointResponse
 )
 async def get_breaking_point(
     user_id: str,  # noqa: ARG001  Required for route pattern

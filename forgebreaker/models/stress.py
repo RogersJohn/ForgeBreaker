@@ -128,9 +128,7 @@ class StressResult:
 
     def has_significant_change(self) -> bool:
         """Check if the stress reveals meaningful information."""
-        return self.assumption_violated or any(
-            a.belief_violated for a in self.affected_assumptions
-        )
+        return self.assumption_violated or any(a.belief_violated for a in self.affected_assumptions)
 
 
 @dataclass

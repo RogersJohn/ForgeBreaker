@@ -216,9 +216,9 @@ class TestStressProducesMeaningfulDifference:
         fragility_changed = result.stressed_fragility != result.original_fragility
         assumptions_affected = len(result.affected_assumptions) > 0
 
-        assert fragility_changed or assumptions_affected, (
-            "Stress should affect fragility or at least track affected assumptions"
-        )
+        assert (
+            fragility_changed or assumptions_affected
+        ), "Stress should affect fragility or at least track affected assumptions"
 
     def test_missing_card_stress_affects_key_cards(
         self, sample_aggro_deck: MetaDeck, mock_card_db: dict
@@ -276,12 +276,8 @@ class TestExplanationsReferenceStressedAssumptions:
             assert (
                 affected.change_explanation
             ), f"Affected assumption {affected.name} should explain what changed"
-            assert (
-                affected.original_value is not None
-            ), "Should show original value"
-            assert (
-                affected.stressed_value is not None
-            ), "Should show stressed value"
+            assert affected.original_value is not None, "Should show original value"
+            assert affected.stressed_value is not None, "Should show stressed value"
 
     def test_breaking_point_has_comprehensive_explanation(
         self, sample_aggro_deck: MetaDeck, mock_card_db: dict
@@ -315,14 +311,24 @@ class TestUncertaintyLanguagePresent:
         # Includes words that indicate this is a scenario/estimate, not a guarantee
         explanation_lower = result.explanation.lower()
         uncertainty_words = [
-            "may", "might", "could", "if", "under", "when", "assume",
-            "shows", "appears", "suggests", "scenario", "testing", "stress"
+            "may",
+            "might",
+            "could",
+            "if",
+            "under",
+            "when",
+            "assume",
+            "shows",
+            "appears",
+            "suggests",
+            "scenario",
+            "testing",
+            "stress",
         ]
 
         has_uncertainty = any(word in explanation_lower for word in uncertainty_words)
         assert has_uncertainty, (
-            f"Explanation should include uncertainty language. "
-            f"Got: '{result.explanation}'"
+            f"Explanation should include uncertainty language. " f"Got: '{result.explanation}'"
         )
 
     def test_recommendations_use_suggestive_language(
@@ -352,8 +358,7 @@ class TestUncertaintyLanguagePresent:
                 ]
                 has_suggestive = any(word in rec_lower for word in suggestive_words)
                 assert has_suggestive, (
-                    f"Recommendation should be suggestive, not directive. "
-                    f"Got: '{rec}'"
+                    f"Recommendation should be suggestive, not directive. " f"Got: '{rec}'"
                 )
 
 
@@ -461,9 +466,9 @@ class TestEndToEndPlayerTrust:
 
         # Allow for cases where the deck is already at max/min state
         if result.stressed_fragility not in (0.0, 1.0):
-            assert has_uncertainty, (
-                "Explanation should include uncertainty language to be honest about limitations"
-            )
+            assert (
+                has_uncertainty
+            ), "Explanation should include uncertainty language to be honest about limitations"
 
         # 6. STRUCTURAL ASSERTION: Explanation must be interpretive, not prescriptive
         #    This guards against explanations drifting into advice/optimization language.
