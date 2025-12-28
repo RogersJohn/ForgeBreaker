@@ -1004,16 +1004,21 @@ async def export_to_arena_tool(
         arena_export = export_deck_to_arena(deck, card_db)
     except ArenaSanitizationError as e:
         # Hard failure - do not return partial output
+        # Extract attributes safely - different error types have different attrs
+        card_name = getattr(e, "card_name", "Unknown")
+        set_code = getattr(e, "set_code", "Unknown")
+        reason = getattr(e, "reason", str(e))
+
         return {
             "success": False,
             "error": "arena_sanitization_failed",
             "message": (
-                f"Deck export failed: '{e.card_name}' cannot be imported into MTG Arena. "
-                f"The printing from set '{e.invalid_set}' is not accepted by Arena. "
-                f"Reason: {e.reason}"
+                f"Deck export failed: '{card_name}' cannot be imported into MTG Arena. "
+                f"The printing from set '{set_code}' is not accepted by Arena. "
+                f"Reason: {reason}"
             ),
-            "card_name": e.card_name,
-            "invalid_set": e.invalid_set,
+            "card_name": card_name,
+            "invalid_set": set_code,
         }
 
     return {

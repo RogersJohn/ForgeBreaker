@@ -5,11 +5,17 @@ Business logic for deck building and collection management.
 """
 
 from forgebreaker.services.arena_sanitizer import (
+    ArenaImportabilityError,
     ArenaSanitizationError,
+    InvalidCardNameError,
+    InvalidCollectorNumberError,
+    InvalidDeckStructureError,
+    InvalidQuantityError,
+    InvalidSetCodeError,
     SanitizedCard,
     SanitizedDeck,
     sanitize_deck_for_arena,
-    validate_arena_importability,
+    validate_arena_export,
 )
 from forgebreaker.services.collection_search import (
     CardSearchResult,
@@ -51,9 +57,16 @@ __all__ = [
     "DeckAnalysis",
     "analyze_and_improve_deck",
     "format_deck_analysis",
+    # Arena sanitization
     "ArenaSanitizationError",
+    "ArenaImportabilityError",
+    "InvalidCardNameError",
+    "InvalidQuantityError",
+    "InvalidSetCodeError",
+    "InvalidCollectorNumberError",
+    "InvalidDeckStructureError",
     "SanitizedCard",
     "SanitizedDeck",
     "sanitize_deck_for_arena",
-    "validate_arena_importability",
+    "validate_arena_export",
 ]
