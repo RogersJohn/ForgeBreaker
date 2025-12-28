@@ -1,11 +1,24 @@
 """
-Player-Centered Validation Test.
+Player-Centered Validation Test — Architectural Contract.
 
-This test validates that ForgeBreaker's core value proposition works:
-changing a single assumption produces a meaningful, explainable difference,
-and that difference is clearly communicated to the player.
+This test protects ForgeBreaker's core contract:
 
-This test protects PLAYER TRUST, not just code correctness.
+1. Assumptions are PLAYER-DECLARED BELIEFS, not tunable parameters.
+   They represent what a player believes about how their deck functions.
+
+2. Violating a belief must produce a QUALITATIVELY DIFFERENT OUTCOME.
+   Not just a number change — the deck's character should shift.
+
+3. That outcome must be EXPLAINABLE, not just numeric.
+   Players must understand WHY, not just see a different score.
+
+This is an ARCHITECTURAL test, not a unit test.
+It exists to prevent future refactors from:
+- Turning assumptions into optimization knobs
+- Smoothing away belief failure into gradual degradation
+- Converting explanations into advice or recommendations
+
+If this test fails, ForgeBreaker has lost its purpose.
 """
 
 import pytest
@@ -451,3 +464,12 @@ class TestEndToEndPlayerTrust:
             assert has_uncertainty, (
                 "Explanation should include uncertainty language to be honest about limitations"
             )
+
+        # 6. STRUCTURAL ASSERTION: Explanation must be interpretive, not prescriptive
+        #    This guards against explanations drifting into advice/optimization language.
+        prescriptive_signals = ["should", "must", "need to", "recommend", "optimize", "fix"]
+        has_prescriptive = any(signal in explanation_lower for signal in prescriptive_signals)
+        assert not has_prescriptive, (
+            f"Explanation must describe consequences, not prescribe actions. "
+            f"Found prescriptive language in: '{result.explanation}'"
+        )
