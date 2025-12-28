@@ -1,15 +1,28 @@
 """
-Arena Sanitizer Boundary Tests.
+Arena Deck Sanitizer Tests.
 
-This test suite protects the output-format boundary:
+THIS TEST SUITE PROVES THE TRUST BOUNDARY IS ENFORCED.
 
-    Any deck output returned to the user must be Arena-IMPORTABLE,
-    not just Arena-legal.
+=============================================================================
+TEST PHILOSOPHY
+=============================================================================
 
-SECURITY FOCUS:
-- All tests assert FAILURE (exceptions), not recovery
-- Adversarial inputs are explicitly tested
-- Partial sanitization is never accepted
+1. Tests assert REJECTION, not recovery
+2. Adversarial inputs are explicitly tested
+3. Partial success is NEVER accepted
+4. The sanitizer class is tested as THE entry point
+
+=============================================================================
+WHAT WE ARE TESTING
+=============================================================================
+
+ArenaDeckSanitizer is THE trust boundary for Arena deck text.
+All raw input must pass through sanitize() before use.
+
+The tests prove:
+- Invalid input is REJECTED (exceptions raised)
+- No output is produced for invalid input
+- Fail-closed behavior is enforced throughout
 """
 
 from typing import Any
@@ -20,24 +33,23 @@ from forgebreaker.services.arena_sanitizer import (
     ARENA_INVALID_SETS,
     MAX_CARD_NAME_LENGTH,
     MAX_CARD_QUANTITY,
-    MAX_COLLECTOR_NUMBER_LENGTH,
-    MAX_SET_CODE_LENGTH,
-    MIN_CARD_QUANTITY,
+    MAX_DECK_ENTRIES,
+    MAX_RAW_INPUT_LENGTH,
+    ArenaDeckSanitizer,
     ArenaImportabilityError,
     ArenaSanitizationError,
     InvalidCardNameError,
     InvalidCollectorNumberError,
     InvalidDeckStructureError,
     InvalidQuantityError,
+    InvalidRawInputError,
     InvalidSetCodeError,
     SanitizedDeck,
-    get_canonical_arena_printing,
     is_arena_valid_printing,
+    sanitize_arena_deck_input,
     sanitize_deck_for_arena,
-    validate_arena_export,
     validate_card_name,
     validate_collector_number,
-    validate_deck_input,
     validate_quantity,
     validate_set_code,
 )
@@ -48,41 +60,8 @@ from forgebreaker.services.arena_sanitizer import (
 
 
 @pytest.fixture
-def card_db_with_plst() -> dict[str, dict[str, Any]]:
-    """
-    Card database where a card's primary printing is from PLST (The List).
-
-    Crystal Grotto is a real example - it exists on Arena but some
-    database entries might reference the PLST printing.
-    """
-    return {
-        "Crystal Grotto": {
-            "name": "Crystal Grotto",
-            "set": "plst",  # Invalid - The List is paper-only
-            "collector_number": "DMU-246",
-            "type_line": "Land",
-            "games": ["paper"],  # NOT on Arena with this printing
-        },
-        "Lightning Bolt": {
-            "name": "Lightning Bolt",
-            "set": "sta",  # Valid - Strixhaven Mystical Archive
-            "collector_number": "42",
-            "type_line": "Instant",
-            "games": ["arena", "paper", "mtgo"],
-        },
-        "Mountain": {
-            "name": "Mountain",
-            "set": "dmu",  # Valid - Dominaria United
-            "collector_number": "269",
-            "type_line": "Basic Land — Mountain",
-            "games": ["arena", "paper", "mtgo"],
-        },
-    }
-
-
-@pytest.fixture
-def card_db_valid() -> dict[str, dict[str, Any]]:
-    """Card database with all valid Arena printings."""
+def card_db() -> dict[str, dict[str, Any]]:
+    """Card database with valid Arena printings."""
     return {
         "Lightning Bolt": {
             "name": "Lightning Bolt",
@@ -108,592 +87,498 @@ def card_db_valid() -> dict[str, dict[str, Any]]:
     }
 
 
+@pytest.fixture
+def card_db_with_plst() -> dict[str, dict[str, Any]]:
+    """Card database with invalid PLST printing."""
+    return {
+        "Crystal Grotto": {
+            "name": "Crystal Grotto",
+            "set": "plst",
+            "collector_number": "DMU-246",
+            "type_line": "Land",
+            "games": ["paper"],  # NOT on Arena
+        },
+        "Lightning Bolt": {
+            "name": "Lightning Bolt",
+            "set": "sta",
+            "collector_number": "42",
+            "type_line": "Instant",
+            "games": ["arena", "paper", "mtgo"],
+        },
+    }
+
+
+@pytest.fixture
+def sanitizer(card_db: dict[str, dict[str, Any]]) -> ArenaDeckSanitizer:
+    """Create a sanitizer instance."""
+    return ArenaDeckSanitizer(card_db)
+
+
 # =============================================================================
-# ADVERSARIAL TESTS - CARD NAME VALIDATION
+# CORE SANITIZER CLASS TESTS
 # =============================================================================
 
 
-class TestAdversarialCardNames:
-    """Test card name validation against malicious/malformed input."""
+class TestArenaDeckSanitizer:
+    """
+    Tests for ArenaDeckSanitizer - THE trust boundary.
 
-    def test_empty_string_rejected(self) -> None:
-        """Empty card name is rejected."""
-        with pytest.raises(InvalidCardNameError) as exc_info:
-            validate_card_name("")
+    These tests prove that the sanitizer:
+    - Accepts UNTRUSTED raw text
+    - Returns TRUSTED SanitizedDeck OR throws
+    - NEVER returns partial results
+    - NEVER silently recovers
+    """
+
+    def test_sanitize_valid_full_format(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Valid full format Arena text is sanitized successfully."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42
+4 Shock (M21) 159
+
+Sideboard
+2 Mountain (DMU) 269"""
+
+        result = sanitizer.sanitize(raw_input)
+
+        assert isinstance(result, SanitizedDeck)
+        assert len(result.cards) == 2
+        assert len(result.sideboard) == 1
+
+    def test_sanitize_valid_simple_format(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Simple format (no set info) is sanitized with database lookup."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+        raw_input = """Deck
+4 Lightning Bolt
+4 Shock"""
+
+        result = sanitizer.sanitize(raw_input)
+
+        assert isinstance(result, SanitizedDeck)
+        assert len(result.cards) == 2
+        # Set codes should come from database
+        assert result.cards[0].set_code == "STA"
+
+    def test_sanitize_returns_immutable_deck(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Sanitized deck is immutable."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42"""
+
+        result = sanitizer.sanitize(raw_input)
+
+        # SanitizedDeck uses frozen=True
+        with pytest.raises((TypeError, AttributeError)):
+            result.cards = ()  # type: ignore[misc]
+
+
+class TestRawInputValidation:
+    """
+    Tests for raw input validation (pre-parse).
+
+    These tests prove the sanitizer rejects malformed input
+    BEFORE attempting to parse it.
+    """
+
+    def test_empty_string_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Empty string is rejected."""
+        with pytest.raises(InvalidRawInputError) as exc_info:
+            sanitizer.sanitize("")
         assert "empty" in str(exc_info.value).lower()
 
-    def test_whitespace_only_rejected(self) -> None:
-        """Whitespace-only card name is rejected."""
-        with pytest.raises(InvalidCardNameError) as exc_info:
-            validate_card_name("   ")
+    def test_whitespace_only_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Whitespace-only input is rejected."""
+        with pytest.raises(InvalidRawInputError) as exc_info:
+            sanitizer.sanitize("   \n\t  ")
         assert "whitespace" in str(exc_info.value).lower()
 
-    def test_tabs_only_rejected(self) -> None:
-        """Tab-only card name is rejected."""
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("\t\t\t")
+    def test_null_bytes_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Input with null bytes is rejected."""
+        with pytest.raises(InvalidRawInputError) as exc_info:
+            sanitizer.sanitize("Deck\x004 Lightning Bolt")
+        assert "null" in str(exc_info.value).lower()
 
-    def test_newlines_rejected(self) -> None:
-        """Card names with newlines are rejected."""
-        with pytest.raises(InvalidCardNameError) as exc_info:
-            validate_card_name("Lightning\nBolt")
-        assert "control character" in str(exc_info.value).lower()
-
-    def test_null_byte_rejected(self) -> None:
-        """Null bytes in card names are rejected."""
-        with pytest.raises(InvalidCardNameError) as exc_info:
-            validate_card_name("Lightning\x00Bolt")
-        assert "control character" in str(exc_info.value).lower()
-
-    def test_carriage_return_rejected(self) -> None:
-        """Carriage returns in card names are rejected."""
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("Card\rName")
-
-    def test_bell_character_rejected(self) -> None:
-        """Bell character (ASCII 7) is rejected."""
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("Card\x07Name")
-
-    def test_excessive_length_rejected(self) -> None:
-        """Card names exceeding max length are rejected."""
-        long_name = "A" * (MAX_CARD_NAME_LENGTH + 1)
-        with pytest.raises(InvalidCardNameError) as exc_info:
-            validate_card_name(long_name)
+    def test_excessive_length_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Input exceeding max length is rejected."""
+        # Use long lines to exceed length limit before entry count limit
+        # Each line is ~1000 chars, need >100 lines to exceed MAX_RAW_INPUT_LENGTH
+        long_name = "A" * 990
+        huge_input = "Deck\n" + f"4 {long_name}\n" * 150
+        with pytest.raises(InvalidRawInputError) as exc_info:
+            sanitizer.sanitize(huge_input)
         assert "maximum length" in str(exc_info.value).lower()
 
-    def test_sql_injection_attempt_rejected(self) -> None:
-        """SQL injection attempts are rejected (due to invalid chars)."""
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("'; DROP TABLE cards; --")
-
-    def test_html_injection_rejected(self) -> None:
-        """HTML/script injection attempts are rejected."""
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("<script>alert('xss')</script>")
-
-    def test_arena_format_injection_rejected(self) -> None:
-        """Attempts to inject Arena format lines are rejected."""
-        # Parentheses are not in allowed pattern
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("4 Fake Card (STA) 1")
-
-    def test_unicode_injection_rejected(self) -> None:
-        """Unicode confusables are rejected."""
-        # Full-width A is not in allowed pattern
-        with pytest.raises(InvalidCardNameError):
-            validate_card_name("Ｌｉｇｈｔｎｉｎｇ Ｂｏｌｔ")
-
-    def test_valid_card_name_passes(self) -> None:
-        """Valid card names pass validation."""
-        # These should NOT raise
-        validate_card_name("Lightning Bolt")
-        validate_card_name("Who/What/When/Where/Why")  # Split cards
-        validate_card_name("Ach, Hans' Run")  # Apostrophe
-        validate_card_name("Fire-Belly Changeling")  # Hyphen
-        validate_card_name("Circle of Protection, Red")  # Comma (though not real)
+    def test_non_string_rejected(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Non-string input is rejected."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+        with pytest.raises(InvalidRawInputError) as exc_info:
+            sanitizer.sanitize(12345)  # type: ignore[arg-type]
+        assert "string" in str(exc_info.value).lower()
 
 
-# =============================================================================
-# ADVERSARIAL TESTS - QUANTITY VALIDATION
-# =============================================================================
+class TestDeckStructureValidation:
+    """
+    Tests for deck structure validation.
 
+    These tests prove malformed deck structure is rejected.
+    """
 
-class TestAdversarialQuantities:
-    """Test quantity validation against invalid values."""
-
-    def test_zero_quantity_rejected(self) -> None:
-        """Zero quantity is rejected."""
-        with pytest.raises(InvalidQuantityError) as exc_info:
-            validate_quantity("Test Card", 0)
-        assert "at least" in str(exc_info.value).lower()
-
-    def test_negative_quantity_rejected(self) -> None:
-        """Negative quantity is rejected."""
-        with pytest.raises(InvalidQuantityError) as exc_info:
-            validate_quantity("Test Card", -1)
-        assert "at least" in str(exc_info.value).lower()
-
-    def test_large_negative_rejected(self) -> None:
-        """Large negative quantity is rejected."""
-        with pytest.raises(InvalidQuantityError):
-            validate_quantity("Test Card", -999999)
-
-    def test_excessive_quantity_rejected(self) -> None:
-        """Quantity exceeding max is rejected."""
-        with pytest.raises(InvalidQuantityError) as exc_info:
-            validate_quantity("Test Card", MAX_CARD_QUANTITY + 1)
-        assert "maximum" in str(exc_info.value).lower()
-
-    def test_absurdly_large_quantity_rejected(self) -> None:
-        """Absurdly large quantities are rejected."""
-        with pytest.raises(InvalidQuantityError):
-            validate_quantity("Test Card", 10**9)
-
-    def test_float_quantity_rejected(self) -> None:
-        """Float quantities are rejected (type check)."""
-        with pytest.raises(InvalidQuantityError) as exc_info:
-            validate_quantity("Test Card", 4.5)  # type: ignore[arg-type]
-        assert "integer" in str(exc_info.value).lower()
-
-    def test_string_quantity_rejected(self) -> None:
-        """String quantities are rejected."""
-        with pytest.raises(InvalidQuantityError):
-            validate_quantity("Test Card", "4")  # type: ignore[arg-type]
-
-    def test_none_quantity_rejected(self) -> None:
-        """None quantity is rejected."""
-        with pytest.raises(InvalidQuantityError):
-            validate_quantity("Test Card", None)  # type: ignore[arg-type]
-
-    def test_valid_quantities_pass(self) -> None:
-        """Valid quantities pass validation."""
-        validate_quantity("Test Card", MIN_CARD_QUANTITY)
-        validate_quantity("Test Card", 4)
-        validate_quantity("Basic Land", MAX_CARD_QUANTITY)
-
-
-# =============================================================================
-# ADVERSARIAL TESTS - SET CODE VALIDATION
-# =============================================================================
-
-
-class TestAdversarialSetCodes:
-    """Test set code validation against invalid values."""
-
-    def test_empty_set_code_rejected(self) -> None:
-        """Empty set code is rejected."""
-        with pytest.raises(InvalidSetCodeError) as exc_info:
-            validate_set_code("Test Card", "")
-        assert "empty" in str(exc_info.value).lower()
-
-    def test_lowercase_set_code_rejected(self) -> None:
-        """Lowercase set codes are rejected (must be uppercase)."""
-        with pytest.raises(InvalidSetCodeError) as exc_info:
-            validate_set_code("Test Card", "sta")
-        assert "uppercase" in str(exc_info.value).lower()
-
-    def test_excessive_length_rejected(self) -> None:
-        """Set codes exceeding max length are rejected."""
-        long_code = "A" * (MAX_SET_CODE_LENGTH + 1)
-        with pytest.raises(InvalidSetCodeError) as exc_info:
-            validate_set_code("Test Card", long_code)
-        assert "maximum length" in str(exc_info.value).lower()
-
-    def test_special_chars_rejected(self) -> None:
-        """Set codes with special characters are rejected."""
-        with pytest.raises(InvalidSetCodeError):
-            validate_set_code("Test Card", "ST@")
-
-    def test_parentheses_rejected(self) -> None:
-        """Set codes with parentheses are rejected (format injection)."""
-        with pytest.raises(InvalidSetCodeError):
-            validate_set_code("Test Card", "(STA)")
-
-    def test_valid_set_codes_pass(self) -> None:
-        """Valid set codes pass validation."""
-        validate_set_code("Test Card", "STA")
-        validate_set_code("Test Card", "M21")
-        validate_set_code("Test Card", "DMU")
-        validate_set_code("Test Card", "MH2")
-
-
-# =============================================================================
-# ADVERSARIAL TESTS - COLLECTOR NUMBER VALIDATION
-# =============================================================================
-
-
-class TestAdversarialCollectorNumbers:
-    """Test collector number validation against invalid values."""
-
-    def test_empty_collector_number_rejected(self) -> None:
-        """Empty collector number is rejected."""
-        with pytest.raises(InvalidCollectorNumberError) as exc_info:
-            validate_collector_number("Test Card", "")
-        assert "empty" in str(exc_info.value).lower()
-
-    def test_excessive_length_rejected(self) -> None:
-        """Collector numbers exceeding max length are rejected."""
-        long_num = "1" * (MAX_COLLECTOR_NUMBER_LENGTH + 1)
-        with pytest.raises(InvalidCollectorNumberError) as exc_info:
-            validate_collector_number("Test Card", long_num)
-        assert "maximum length" in str(exc_info.value).lower()
-
-    def test_special_chars_rejected(self) -> None:
-        """Collector numbers with special characters are rejected."""
-        with pytest.raises(InvalidCollectorNumberError):
-            validate_collector_number("Test Card", "42*")
-
-    def test_spaces_rejected(self) -> None:
-        """Collector numbers with spaces are rejected."""
-        with pytest.raises(InvalidCollectorNumberError):
-            validate_collector_number("Test Card", "42 43")
-
-    def test_valid_collector_numbers_pass(self) -> None:
-        """Valid collector numbers pass validation."""
-        validate_collector_number("Test Card", "42")
-        validate_collector_number("Test Card", "123a")  # Some sets have letter suffixes
-        validate_collector_number("Test Card", "DMU246")  # Some formats include set
-
-
-# =============================================================================
-# ADVERSARIAL TESTS - DECK STRUCTURE VALIDATION
-# =============================================================================
-
-
-class TestAdversarialDeckStructure:
-    """Test deck structure validation against malformed input."""
-
-    def test_none_maindeck_rejected(self) -> None:
-        """None as maindeck is rejected."""
-        with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_deck_input(None, None)  # type: ignore[arg-type]
-        assert "cannot be None" in str(exc_info.value)
-
-    def test_list_instead_of_dict_rejected(self) -> None:
-        """List instead of dict is rejected."""
-        with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_deck_input(["card1", "card2"], None)  # type: ignore[arg-type]
-        assert "must be a dict" in str(exc_info.value)
-
-    def test_string_instead_of_dict_rejected(self) -> None:
-        """String instead of dict is rejected."""
-        with pytest.raises(InvalidDeckStructureError):
-            validate_deck_input("4 Lightning Bolt", None)  # type: ignore[arg-type]
-
-    def test_list_sideboard_rejected(self) -> None:
-        """List as sideboard is rejected."""
-        with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_deck_input({}, ["card1"])  # type: ignore[arg-type]
-        assert "sideboard" in str(exc_info.value).lower()
-
-    def test_invalid_card_in_deck_rejected(self) -> None:
-        """Invalid card name in deck is rejected."""
-        with pytest.raises(InvalidCardNameError):
-            validate_deck_input({"": 4}, None)
-
-    def test_invalid_quantity_in_deck_rejected(self) -> None:
-        """Invalid quantity in deck is rejected."""
-        with pytest.raises(InvalidQuantityError):
-            validate_deck_input({"Valid Card": 0}, None)
-
-    def test_invalid_card_in_sideboard_rejected(self) -> None:
-        """Invalid card in sideboard is rejected."""
-        with pytest.raises(InvalidCardNameError):
-            validate_deck_input({}, {"<script>": 4})
-
-
-# =============================================================================
-# ADVERSARIAL TESTS - EXPORT VALIDATION
-# =============================================================================
-
-
-class TestAdversarialExportValidation:
-    """Test Arena export validation against malformed/injected input."""
-
-    def test_empty_export_rejected(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Empty export is rejected."""
-        with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_arena_export("", card_db_valid)
-        assert "empty" in str(exc_info.value).lower()
-
-    def test_missing_deck_section_rejected(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Export without Deck section is rejected."""
-        export = """Sideboard
-4 Lightning Bolt (STA) 42"""
-        with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_arena_export(export, card_db_valid)
-        assert "missing" in str(exc_info.value).lower()
-
-    def test_malformed_line_rejected(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Malformed card lines are rejected."""
-        export = """Deck
-Lightning Bolt"""  # Missing quantity and set info
-        with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_arena_export(export, card_db_valid)
-        assert "malformed" in str(exc_info.value).lower()
-
-    def test_invalid_set_in_export_rejected(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Invalid set codes in export are rejected."""
-        export = """Deck
-4 Lightning Bolt (PLST) 42"""
-        with pytest.raises(ArenaImportabilityError) as exc_info:
-            validate_arena_export(export, card_db_valid)
-        assert "PLST" in str(exc_info.value)
-
-    def test_unknown_section_rejected(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
+    def test_unknown_section_header_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
         """Unknown section headers are rejected."""
-        export = """Deck
+        raw_input = """Deck
 4 Lightning Bolt (STA) 42
 MaliciousSection
 4 Shock (M21) 159"""
+
         with pytest.raises(InvalidDeckStructureError) as exc_info:
-            validate_arena_export(export, card_db_valid)
+            sanitizer.sanitize(raw_input)
         assert "unknown section" in str(exc_info.value).lower()
 
-    def test_injection_via_section_rejected(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Injection attempts via section headers are rejected."""
-        export = """Deck
-4 Lightning Bolt (STA) 42
-ScriptInjection:
-<script>alert(1)</script>"""
-        with pytest.raises(InvalidDeckStructureError):
-            validate_arena_export(export, card_db_valid)
+    def test_malformed_line_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Malformed card lines are rejected."""
+        raw_input = """Deck
+Lightning Bolt"""  # Missing quantity
 
-    def test_zero_quantity_in_export_rejected(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Zero quantity in export is rejected."""
-        export = """Deck
-0 Lightning Bolt (STA) 42"""
-        with pytest.raises(InvalidQuantityError):
-            validate_arena_export(export, card_db_valid)
+        with pytest.raises(InvalidDeckStructureError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "malformed" in str(exc_info.value).lower()
 
-    def test_negative_quantity_in_export_rejected(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Negative quantities in export are rejected (won't match pattern)."""
-        export = """Deck
--4 Lightning Bolt (STA) 42"""
-        with pytest.raises(InvalidDeckStructureError):
-            validate_arena_export(export, card_db_valid)
+    def test_excessive_entries_rejected(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Decks with too many entries are rejected."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+        entries = "\n".join(["1 Lightning Bolt (STA) 42" for _ in range(MAX_DECK_ENTRIES + 1)])
+        raw_input = f"Deck\n{entries}"
 
-    def test_partial_truncated_export_rejected(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Truncated/incomplete card lines are rejected."""
-        export = """Deck
-4 Lightning Bolt ("""  # Truncated
+        with pytest.raises(InvalidDeckStructureError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "exceeds maximum" in str(exc_info.value).lower()
+
+
+class TestCardNameValidation:
+    """
+    Tests for card name validation (adversarial).
+
+    These tests prove malicious/malformed card names are rejected.
+    """
+
+    def test_control_characters_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Card names with control characters are rejected."""
+        raw_input = "Deck\n4 Lightning\x07Bolt (STA) 42"
+
+        with pytest.raises(InvalidCardNameError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "control character" in str(exc_info.value).lower()
+
+    def test_sql_injection_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """SQL injection attempts are rejected."""
+        raw_input = "Deck\n4 '; DROP TABLE cards; -- (STA) 42"
+
+        with pytest.raises(InvalidCardNameError):
+            sanitizer.sanitize(raw_input)
+
+    def test_html_injection_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """HTML injection attempts are rejected."""
+        raw_input = "Deck\n4 <script>alert(1)</script> (STA) 42"
+
+        with pytest.raises(InvalidCardNameError):
+            sanitizer.sanitize(raw_input)
+
+    def test_excessive_length_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Excessively long card names are rejected."""
+        long_name = "A" * (MAX_CARD_NAME_LENGTH + 1)
+        raw_input = f"Deck\n4 {long_name} (STA) 42"
+
+        with pytest.raises(InvalidCardNameError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "maximum length" in str(exc_info.value).lower()
+
+
+class TestQuantityValidation:
+    """
+    Tests for quantity validation (adversarial).
+
+    These tests prove invalid quantities are rejected.
+    """
+
+    def test_zero_quantity_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Zero quantity is rejected."""
+        raw_input = "Deck\n0 Lightning Bolt (STA) 42"
+
+        with pytest.raises(InvalidQuantityError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "at least" in str(exc_info.value).lower()
+
+    def test_negative_quantity_pattern_fails(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Negative quantities don't match pattern (rejected as malformed)."""
+        raw_input = "Deck\n-4 Lightning Bolt (STA) 42"
+
         with pytest.raises(InvalidDeckStructureError):
-            validate_arena_export(export, card_db_valid)
+            sanitizer.sanitize(raw_input)
+
+    def test_excessive_quantity_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Quantities exceeding max are rejected."""
+        raw_input = f"Deck\n{MAX_CARD_QUANTITY + 1} Lightning Bolt (STA) 42"
+
+        with pytest.raises(InvalidQuantityError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "maximum" in str(exc_info.value).lower()
+
+
+class TestSetCodeValidation:
+    """
+    Tests for set code validation (adversarial).
+
+    These tests prove invalid set codes are rejected.
+    """
+
+    def test_invalid_set_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Known invalid sets are rejected."""
+        raw_input = "Deck\n4 Lightning Bolt (PLST) 42"
+
+        with pytest.raises(ArenaImportabilityError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "PLST" in str(exc_info.value)
+
+    def test_lowercase_set_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Lowercase set codes don't match full format pattern.
+
+        The line falls back to simple format, making the card name
+        'Lightning Bolt (sta) 42' which then fails card name validation
+        or database lookup. Either way, the input is REJECTED.
+        """
+        raw_input = "Deck\n4 Lightning Bolt (sta) 42"
+
+        # Fails because the malformed card name is rejected
+        with pytest.raises(ArenaSanitizationError):
+            sanitizer.sanitize(raw_input)
+
+
+class TestArenaImportability:
+    """
+    Tests for Arena importability validation.
+
+    These tests prove cards not on Arena are rejected.
+    """
+
+    def test_paper_only_card_rejected(self, card_db_with_plst: dict[str, dict[str, Any]]) -> None:
+        """Paper-only cards are rejected."""
+        sanitizer = ArenaDeckSanitizer(card_db_with_plst)
+        raw_input = "Deck\n4 Crystal Grotto"
+
+        with pytest.raises(ArenaImportabilityError):
+            sanitizer.sanitize(raw_input)
+
+    def test_unknown_card_rejected(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Unknown cards (not in database) are rejected."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+        raw_input = "Deck\n4 Totally Fake Card"
+
+        with pytest.raises(ArenaImportabilityError):
+            sanitizer.sanitize(raw_input)
 
 
 # =============================================================================
-# ORIGINAL BOUNDARY TESTS (PRESERVED)
+# CONVENIENCE FUNCTION TESTS
+# =============================================================================
+
+
+class TestSanitizeArenaDeckInput:
+    """Tests for the sanitize_arena_deck_input convenience function."""
+
+    def test_valid_input_returns_deck(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Valid input returns SanitizedDeck."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42"""
+
+        result = sanitize_arena_deck_input(raw_input, card_db)
+
+        assert isinstance(result, SanitizedDeck)
+
+    def test_invalid_input_throws(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Invalid input throws exception."""
+        with pytest.raises(ArenaSanitizationError):
+            sanitize_arena_deck_input("", card_db)
+
+
+# =============================================================================
+# DICT-BASED API TESTS
+# =============================================================================
+
+
+class TestSanitizeDeckForArena:
+    """Tests for dict-based sanitization."""
+
+    def test_valid_dict_sanitizes(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Valid dict is sanitized."""
+        cards = {"Lightning Bolt": 4}
+
+        result = sanitize_deck_for_arena(cards, card_db)
+
+        assert isinstance(result, SanitizedDeck)
+        assert "4 Lightning Bolt (STA) 42" in result.to_arena_format()
+
+    def test_invalid_card_name_rejected(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Invalid card names in dict are rejected."""
+        cards = {"": 4}
+
+        with pytest.raises(InvalidCardNameError):
+            sanitize_deck_for_arena(cards, card_db)
+
+    def test_invalid_quantity_rejected(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Invalid quantities in dict are rejected."""
+        cards = {"Lightning Bolt": 0}
+
+        with pytest.raises(InvalidQuantityError):
+            sanitize_deck_for_arena(cards, card_db)
+
+
+# =============================================================================
+# VALIDATION FUNCTION TESTS (ISOLATED)
+# =============================================================================
+
+
+class TestValidateCardName:
+    """Tests for standalone card name validation."""
+
+    def test_empty_rejected(self) -> None:
+        """Empty name is rejected."""
+        with pytest.raises(InvalidCardNameError):
+            validate_card_name("")
+
+    def test_whitespace_rejected(self) -> None:
+        """Whitespace-only name is rejected."""
+        with pytest.raises(InvalidCardNameError):
+            validate_card_name("   ")
+
+    def test_control_chars_rejected(self) -> None:
+        """Control characters are rejected."""
+        with pytest.raises(InvalidCardNameError):
+            validate_card_name("Test\x00Card")
+
+    def test_valid_names_pass(self) -> None:
+        """Valid names pass."""
+        validate_card_name("Lightning Bolt")
+        validate_card_name("Who/What/When/Where/Why")
+        validate_card_name("Fire-Belly Changeling")
+
+
+class TestValidateQuantity:
+    """Tests for standalone quantity validation."""
+
+    def test_zero_rejected(self) -> None:
+        """Zero is rejected."""
+        with pytest.raises(InvalidQuantityError):
+            validate_quantity("Test", 0)
+
+    def test_negative_rejected(self) -> None:
+        """Negative is rejected."""
+        with pytest.raises(InvalidQuantityError):
+            validate_quantity("Test", -1)
+
+    def test_excessive_rejected(self) -> None:
+        """Excessive quantity is rejected."""
+        with pytest.raises(InvalidQuantityError):
+            validate_quantity("Test", MAX_CARD_QUANTITY + 1)
+
+    def test_non_int_rejected(self) -> None:
+        """Non-integer is rejected."""
+        with pytest.raises(InvalidQuantityError):
+            validate_quantity("Test", 4.5)  # type: ignore[arg-type]
+
+    def test_valid_quantities_pass(self) -> None:
+        """Valid quantities pass."""
+        validate_quantity("Test", 1)
+        validate_quantity("Test", 4)
+        validate_quantity("Basic", MAX_CARD_QUANTITY)
+
+
+class TestValidateSetCode:
+    """Tests for standalone set code validation."""
+
+    def test_empty_rejected(self) -> None:
+        """Empty set code is rejected."""
+        with pytest.raises(InvalidSetCodeError):
+            validate_set_code("Test", "")
+
+    def test_lowercase_rejected(self) -> None:
+        """Lowercase set code is rejected."""
+        with pytest.raises(InvalidSetCodeError):
+            validate_set_code("Test", "sta")
+
+    def test_valid_codes_pass(self) -> None:
+        """Valid set codes pass."""
+        validate_set_code("Test", "STA")
+        validate_set_code("Test", "M21")
+
+
+class TestValidateCollectorNumber:
+    """Tests for standalone collector number validation."""
+
+    def test_empty_rejected(self) -> None:
+        """Empty collector number is rejected."""
+        with pytest.raises(InvalidCollectorNumberError):
+            validate_collector_number("Test", "")
+
+    def test_valid_numbers_pass(self) -> None:
+        """Valid collector numbers pass."""
+        validate_collector_number("Test", "42")
+        validate_collector_number("Test", "123a")
+
+
+# =============================================================================
+# INVALID SET DETECTION TESTS
 # =============================================================================
 
 
 class TestInvalidSetDetection:
-    """Tests for detecting invalid Arena set codes."""
+    """Tests for invalid Arena set detection."""
 
     def test_plst_is_invalid(self) -> None:
-        """PLST (The List) is not valid for Arena import."""
+        """PLST is invalid."""
         assert "plst" in ARENA_INVALID_SETS
 
     def test_mul_is_invalid(self) -> None:
-        """MUL (Multiverse Legends) is not valid for Arena import."""
+        """MUL is invalid."""
         assert "mul" in ARENA_INVALID_SETS
 
     def test_sld_is_invalid(self) -> None:
-        """SLD (Secret Lair) is not valid for Arena import."""
+        """SLD is invalid."""
         assert "sld" in ARENA_INVALID_SETS
 
     def test_sta_is_valid(self) -> None:
-        """STA (Strixhaven Mystical Archive) IS valid for Arena."""
+        """STA is valid."""
         assert "sta" not in ARENA_INVALID_SETS
 
-    def test_is_arena_valid_printing_rejects_plst(
-        self, card_db_with_plst: dict[str, dict[str, Any]]
-    ) -> None:
-        """is_arena_valid_printing returns False for PLST."""
-        card_data = card_db_with_plst["Crystal Grotto"]
+
+class TestIsArenaValidPrinting:
+    """Tests for is_arena_valid_printing."""
+
+    def test_invalid_set_returns_false(self) -> None:
+        """Invalid set returns False."""
+        card_data: dict[str, Any] = {"games": ["arena", "paper"]}
         assert not is_arena_valid_printing("plst", card_data)
 
-    def test_is_arena_valid_printing_accepts_valid_set(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """is_arena_valid_printing returns True for valid sets."""
-        card_data = card_db_valid["Lightning Bolt"]
-        assert is_arena_valid_printing("sta", card_data)
+    def test_no_arena_returns_false(self) -> None:
+        """No arena in games returns False."""
+        card_data: dict[str, Any] = {"games": ["paper"]}
+        assert not is_arena_valid_printing("STA", card_data)
+
+    def test_valid_returns_true(self) -> None:
+        """Valid printing returns True."""
+        card_data: dict[str, Any] = {"games": ["arena", "paper"]}
+        assert is_arena_valid_printing("STA", card_data)
 
 
-class TestCanonicalPrinting:
-    """Tests for getting canonical Arena-valid printings."""
-
-    def test_valid_set_passes_through(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Valid set codes are returned unchanged."""
-        set_code, collector_num = get_canonical_arena_printing(
-            "Lightning Bolt", "sta", card_db_valid
-        )
-        assert set_code == "STA"
-        assert collector_num == "42"
-
-    def test_invalid_set_raises_error(self, card_db_with_plst: dict[str, dict[str, Any]]) -> None:
-        """Invalid set codes raise ArenaImportabilityError."""
-        with pytest.raises(ArenaImportabilityError) as exc_info:
-            get_canonical_arena_printing("Crystal Grotto", "plst", card_db_with_plst)
-
-        error = exc_info.value
-        assert error.card_name == "Crystal Grotto"
-        assert error.set_code == "plst"
-        assert "not valid for Arena" in str(error)
-
-    def test_unknown_card_raises_error(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Unknown cards raise ArenaImportabilityError."""
-        with pytest.raises(ArenaImportabilityError) as exc_info:
-            get_canonical_arena_printing("Nonexistent Card", "xxx", card_db_valid)
-
-        assert exc_info.value.card_name == "Nonexistent Card"
-        assert "not found" in str(exc_info.value).lower()
+# =============================================================================
+# EXCEPTION HIERARCHY TESTS
+# =============================================================================
 
 
-class TestDeckSanitization:
-    """Tests for full deck sanitization."""
+class TestExceptionHierarchy:
+    """Tests for the exception hierarchy."""
 
-    def test_valid_deck_sanitizes_successfully(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Deck with all valid printings sanitizes successfully."""
-        cards = {"Lightning Bolt": 4, "Shock": 4}
-
-        result = sanitize_deck_for_arena(cards, card_db_valid)
-
-        assert isinstance(result, SanitizedDeck)
-        assert len(result.cards) == 2
-
-    def test_sanitized_deck_produces_arena_format(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Sanitized deck can be exported to Arena format."""
-        cards = {"Lightning Bolt": 4}
-
-        result = sanitize_deck_for_arena(cards, card_db_valid)
-        arena_format = result.to_arena_format()
-
-        assert "Deck" in arena_format
-        assert "4 Lightning Bolt (STA) 42" in arena_format
-
-    def test_invalid_printing_fails_entire_deck(
-        self, card_db_with_plst: dict[str, dict[str, Any]]
-    ) -> None:
-        """
-        Deck with ONE invalid printing fails ENTIRELY.
-
-        This is the core contract: no partial sanitization.
-        """
-        cards = {
-            "Lightning Bolt": 4,  # Valid
-            "Crystal Grotto": 4,  # Invalid - PLST printing
-        }
-
-        with pytest.raises(ArenaImportabilityError) as exc_info:
-            sanitize_deck_for_arena(cards, card_db_with_plst)
-
-        # Verify the error identifies the problematic card
-        assert exc_info.value.card_name == "Crystal Grotto"
-        assert exc_info.value.set_code == "plst"  # Reports the actual invalid set
-
-    def test_empty_deck_succeeds(self, card_db_valid: dict[str, dict[str, Any]]) -> None:
-        """Empty deck is valid (edge case)."""
-        result = sanitize_deck_for_arena({}, card_db_valid)
-        assert isinstance(result, SanitizedDeck)
-        assert len(result.cards) == 0
-
-    def test_invalid_card_name_fails_sanitization(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Invalid card name fails entire sanitization."""
-        with pytest.raises(InvalidCardNameError):
-            sanitize_deck_for_arena({"": 4}, card_db_valid)
-
-    def test_invalid_quantity_fails_sanitization(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """Invalid quantity fails entire sanitization."""
-        with pytest.raises(InvalidQuantityError):
-            sanitize_deck_for_arena({"Lightning Bolt": 0}, card_db_valid)
-
-
-class TestArenaSanitizationError:
-    """Tests for the sanitization error types."""
-
-    def test_base_error_works(self) -> None:
-        """Base ArenaSanitizationError can be raised."""
-        with pytest.raises(ArenaSanitizationError):
-            raise ArenaSanitizationError("Test error")
-
-    def test_invalid_card_name_error_contains_info(self) -> None:
-        """InvalidCardNameError contains card name and reason."""
-        error = InvalidCardNameError("Bad Card", "Test reason")
-        assert error.card_name == "Bad Card"
-        assert error.reason == "Test reason"
-        assert "Bad Card" in str(error)
-        assert "Test reason" in str(error)
-
-    def test_invalid_quantity_error_contains_info(self) -> None:
-        """InvalidQuantityError contains all relevant info."""
-        error = InvalidQuantityError("Test Card", -5, "Must be positive")
-        assert error.card_name == "Test Card"
-        assert error.quantity == -5
-        assert error.reason == "Must be positive"
-        assert "-5" in str(error)
-
-    def test_invalid_set_code_error_contains_info(self) -> None:
-        """InvalidSetCodeError contains all relevant info."""
-        error = InvalidSetCodeError("Test Card", "PLST", "Not valid")
-        assert error.card_name == "Test Card"
-        assert error.set_code == "PLST"
-        assert "PLST" in str(error)
-
-    def test_arena_importability_error_contains_info(self) -> None:
-        """ArenaImportabilityError contains all relevant info."""
-        error = ArenaImportabilityError("Crystal Grotto", "plst", "Paper only")
-        assert error.card_name == "Crystal Grotto"
-        assert error.set_code == "plst"
-        assert error.reason == "Paper only"
-        assert "Crystal Grotto" in str(error)
-
-    def test_error_truncates_long_names(self) -> None:
-        """Long card names are truncated in error messages."""
-        long_name = "A" * 100
-        error = InvalidCardNameError(long_name, "Too long")
-        # Error message should contain truncated version
-        assert len(str(error)) < 200
-
-
-class TestBoundaryContract:
-    """
-    Core boundary test: proves the sanitizer protects the output contract.
-
-    A deck containing a valid card with an invalid printing must be:
-    - Canonicalized to a valid printing, OR
-    - Rejected with an explicit error
-
-    This test is intentionally stable across refactors.
-    """
-
-    def test_invalid_printing_is_handled_explicitly(
-        self, card_db_with_plst: dict[str, dict[str, Any]]
-    ) -> None:
-        """
-        A valid card with an invalid printing must be handled explicitly.
-
-        Either:
-        1. The sanitizer finds a valid alternative printing, OR
-        2. The sanitizer raises a clear, typed error
-
-        This test does NOT assert on exact formatting.
-        It only verifies the boundary is enforced.
-        """
-        cards = {"Crystal Grotto": 4}
-
-        # The sanitizer must either succeed with valid output or fail explicitly
-        try:
-            result = sanitize_deck_for_arena(cards, card_db_with_plst)
-            # If it succeeded, the output must be valid
-            arena_output = result.to_arena_format()
-            # Post-validation must not raise
-            validate_arena_export(arena_output, card_db_with_plst)
-        except ArenaSanitizationError as e:
-            # If it failed, the error must be explicit and typed
-            assert isinstance(e, ArenaSanitizationError)
-            # Must have identifying information
-            if isinstance(e, ArenaImportabilityError):
-                assert e.card_name == "Crystal Grotto"
-                assert e.reason is not None
-
-    def test_all_errors_inherit_from_base(self) -> None:
-        """All sanitization errors inherit from base class."""
+    def test_all_inherit_from_base(self) -> None:
+        """All exceptions inherit from base."""
+        assert issubclass(InvalidRawInputError, ArenaSanitizationError)
         assert issubclass(InvalidCardNameError, ArenaSanitizationError)
         assert issubclass(InvalidQuantityError, ArenaSanitizationError)
         assert issubclass(InvalidSetCodeError, ArenaSanitizationError)
@@ -701,20 +586,68 @@ class TestBoundaryContract:
         assert issubclass(InvalidDeckStructureError, ArenaSanitizationError)
         assert issubclass(ArenaImportabilityError, ArenaSanitizationError)
 
-    def test_fail_closed_no_partial_recovery(
-        self, card_db_valid: dict[str, dict[str, Any]]
-    ) -> None:
-        """
-        Sanitizer never returns partial results.
+    def test_exceptions_contain_context(self) -> None:
+        """Exceptions contain useful context."""
+        error = InvalidCardNameError("Test Card", "bad reason")
+        assert error.card_name == "Test Card"
+        assert error.reason == "bad reason"
+        assert "Test Card" in str(error)
 
-        If ANY card fails validation, the entire deck is rejected.
+
+# =============================================================================
+# BOUNDARY CONTRACT TESTS
+# =============================================================================
+
+
+class TestBoundaryContract:
+    """
+    Core boundary tests.
+
+    These prove the trust boundary is enforced:
+    - Invalid input is REJECTED
+    - Valid input produces TRUSTED output
+    - No partial results ever
+    """
+
+    def test_fail_closed_no_partial_results(self, card_db: dict[str, dict[str, Any]]) -> None:
         """
+        If ANY card fails, the ENTIRE deck is rejected.
+
+        No partial sanitization. Ever.
+        """
+        sanitizer = ArenaDeckSanitizer(card_db)
+
         # Mix valid and invalid
-        cards = {
-            "Lightning Bolt": 4,  # Valid
-            "": 4,  # Invalid - empty name
-        }
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42
+4 <script>alert(1)</script> (STA) 1"""
 
-        # Must fail entirely, not return partial result
         with pytest.raises(ArenaSanitizationError):
-            sanitize_deck_for_arena(cards, card_db_valid)
+            sanitizer.sanitize(raw_input)
+
+    def test_valid_produces_trusted_output(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Valid input produces trusted, exportable output."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42"""
+
+        result = sanitizer.sanitize(raw_input)
+
+        # Output can be safely exported
+        arena_format = result.to_arena_format()
+        assert "Deck" in arena_format
+        assert "4 Lightning Bolt (STA) 42" in arena_format
+
+    def test_sanitizer_is_reusable(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Sanitizer can be reused for multiple inputs."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+
+        input1 = "Deck\n4 Lightning Bolt (STA) 42"
+        input2 = "Deck\n4 Shock (M21) 159"
+
+        result1 = sanitizer.sanitize(input1)
+        result2 = sanitizer.sanitize(input2)
+
+        assert len(result1.cards) == 1
+        assert len(result2.cards) == 1

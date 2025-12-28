@@ -5,15 +5,23 @@ Business logic for deck building and collection management.
 """
 
 from forgebreaker.services.arena_sanitizer import (
+    # The sanitizer class (THE trust boundary)
+    ArenaDeckSanitizer,
     ArenaImportabilityError,
+    # Exception hierarchy
     ArenaSanitizationError,
     InvalidCardNameError,
     InvalidCollectorNumberError,
     InvalidDeckStructureError,
     InvalidQuantityError,
+    InvalidRawInputError,
     InvalidSetCodeError,
+    # Sanitized output structures
     SanitizedCard,
     SanitizedDeck,
+    # Primary entry point for raw Arena text
+    sanitize_arena_deck_input,
+    # Dict-based sanitization (for internal use)
     sanitize_deck_for_arena,
     validate_arena_export,
 )
@@ -57,7 +65,10 @@ __all__ = [
     "DeckAnalysis",
     "analyze_and_improve_deck",
     "format_deck_analysis",
-    # Arena sanitization
+    # Arena sanitization - THE trust boundary
+    "ArenaDeckSanitizer",
+    "sanitize_arena_deck_input",
+    # Exception hierarchy
     "ArenaSanitizationError",
     "ArenaImportabilityError",
     "InvalidCardNameError",
@@ -65,8 +76,11 @@ __all__ = [
     "InvalidSetCodeError",
     "InvalidCollectorNumberError",
     "InvalidDeckStructureError",
+    "InvalidRawInputError",
+    # Sanitized output structures
     "SanitizedCard",
     "SanitizedDeck",
+    # Dict-based API (for internal use)
     "sanitize_deck_for_arena",
     "validate_arena_export",
 ]
