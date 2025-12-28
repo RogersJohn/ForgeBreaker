@@ -23,12 +23,14 @@ The tests prove:
 - Invalid input is REJECTED (exceptions raised)
 - No output is produced for invalid input
 - Fail-closed behavior is enforced throughout
+- Parser success does NOT imply sanitizer success
 """
 
 from typing import Any
 
 import pytest
 
+from forgebreaker.services.arena_parser import ArenaParser, parse_arena_deck
 from forgebreaker.services.arena_sanitizer import (
     ARENA_INVALID_SETS,
     MAX_CARD_NAME_LENGTH,
@@ -37,6 +39,7 @@ from forgebreaker.services.arena_sanitizer import (
     ArenaDeckSanitizer,
     ArenaImportabilityError,
     ArenaSanitizationError,
+    DuplicateCardError,
     InvalidCardNameError,
     InvalidCollectorNumberError,
     InvalidDeckStructureError,
@@ -114,6 +117,56 @@ def sanitizer(card_db: dict[str, dict[str, Any]]) -> ArenaDeckSanitizer:
 
 
 # =============================================================================
+# ARCHITECTURE BOUNDARY TESTS
+# =============================================================================
+
+
+class TestArchitectureBoundary:
+    """
+    Tests proving parser and sanitizer are separate.
+
+    Parser success does NOT imply sanitizer success.
+    """
+
+    def test_parser_success_does_not_imply_sanitizer_success(
+        self, card_db: dict[str, dict[str, Any]]
+    ) -> None:
+        """Parser can succeed while sanitizer fails."""
+        # This input is syntactically valid but semantically invalid
+        raw_input = "Deck\n4 Totally Fake Card"
+
+        # Parser succeeds
+        parsed = parse_arena_deck(raw_input)
+        assert len(parsed.sections) == 1
+        assert len(parsed.sections[0].entries) == 1
+
+        # Sanitizer fails
+        sanitizer = ArenaDeckSanitizer(card_db)
+        with pytest.raises(ArenaImportabilityError):
+            sanitizer.sanitize(raw_input)
+
+    def test_parser_is_separate_module(self) -> None:
+        """Parser is a separate class that can be used independently."""
+        parser = ArenaParser()
+        parsed = parser.parse("Deck\n4 Some Card")
+
+        # Parser produces intermediate structure
+        assert parsed.sections[0].entries[0].card_name == "Some Card"
+
+    def test_parser_does_not_validate(self) -> None:
+        """Parser extracts structure without validating values."""
+        parser = ArenaParser()
+
+        # Control characters pass through parser
+        parsed = parser.parse("Deck\n4 Card\x00Name")
+        assert "\x00" in parsed.sections[0].entries[0].card_name
+
+        # Invalid quantities pass through parser
+        parsed = parser.parse("Deck\n999999 Some Card")
+        assert parsed.sections[0].entries[0].quantity_str == "999999"
+
+
+# =============================================================================
 # CORE SANITIZER CLASS TESTS
 # =============================================================================
 
@@ -155,7 +208,7 @@ Sideboard
 
         assert isinstance(result, SanitizedDeck)
         assert len(result.cards) == 2
-        # Set codes should come from database
+        # Set codes should come from database (uppercased)
         assert result.cards[0].set_code == "STA"
 
     def test_sanitize_returns_immutable_deck(self, sanitizer: ArenaDeckSanitizer) -> None:
@@ -168,6 +221,23 @@ Sideboard
         # SanitizedDeck uses frozen=True
         with pytest.raises((TypeError, AttributeError)):
             result.cards = ()  # type: ignore[misc]
+
+    def test_output_is_canonicalized(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Output is alphabetically ordered (canonicalized)."""
+        raw_input = """Deck
+4 Shock (M21) 159
+4 Lightning Bolt (STA) 42"""
+
+        result = sanitizer.sanitize(raw_input)
+
+        # Should be alphabetical
+        assert result.cards[0].name == "Lightning Bolt"
+        assert result.cards[1].name == "Shock"
+
+
+# =============================================================================
+# RAW INPUT VALIDATION TESTS
+# =============================================================================
 
 
 class TestRawInputValidation:
@@ -199,7 +269,6 @@ class TestRawInputValidation:
     def test_excessive_length_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
         """Input exceeding max length is rejected."""
         # Use long lines to exceed length limit before entry count limit
-        # Each line is ~1000 chars, need >100 lines to exceed MAX_RAW_INPUT_LENGTH
         long_name = "A" * 990
         huge_input = "Deck\n" + f"4 {long_name}\n" * 150
         with pytest.raises(InvalidRawInputError) as exc_info:
@@ -214,15 +283,24 @@ class TestRawInputValidation:
         assert "string" in str(exc_info.value).lower()
 
 
+# =============================================================================
+# STRUCTURAL INVARIANT TESTS
+# =============================================================================
+
+
 class TestDeckStructureValidation:
     """
     Tests for deck structure validation.
 
-    These tests prove malformed deck structure is rejected.
+    These tests prove structural invariants are enforced.
     """
 
     def test_unknown_section_header_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
-        """Unknown section headers are rejected."""
+        """Unknown section headers are rejected.
+
+        Lines that look like section headers but aren't recognized
+        are treated as malformed lines and cause rejection.
+        """
         raw_input = """Deck
 4 Lightning Bolt (STA) 42
 MaliciousSection
@@ -230,7 +308,19 @@ MaliciousSection
 
         with pytest.raises(InvalidDeckStructureError) as exc_info:
             sanitizer.sanitize(raw_input)
-        assert "unknown section" in str(exc_info.value).lower()
+        # Unknown headers are rejected as malformed (fail-closed)
+        assert "malformed" in str(exc_info.value).lower()
+
+    def test_duplicate_section_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Duplicate sections are rejected."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42
+Deck
+4 Shock (M21) 159"""
+
+        with pytest.raises(InvalidDeckStructureError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "duplicate section" in str(exc_info.value).lower()
 
     def test_malformed_line_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
         """Malformed card lines are rejected."""
@@ -250,6 +340,71 @@ Lightning Bolt"""  # Missing quantity
         with pytest.raises(InvalidDeckStructureError) as exc_info:
             sanitizer.sanitize(raw_input)
         assert "exceeds maximum" in str(exc_info.value).lower()
+
+    def test_empty_deck_section_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Deck with only sideboard (no main deck cards) is rejected."""
+        raw_input = """Deck
+Sideboard
+4 Lightning Bolt (STA) 42"""
+
+        with pytest.raises(InvalidDeckStructureError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "at least one card" in str(exc_info.value).lower()
+
+    def test_partial_truncated_input_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Truncated/partial input with unparseable lines is rejected."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42
+This is not a valid card line at all
+4 Shock"""
+
+        with pytest.raises(InvalidDeckStructureError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "malformed" in str(exc_info.value).lower()
+
+
+# =============================================================================
+# SEMANTIC INVARIANT TESTS
+# =============================================================================
+
+
+class TestSemanticInvariants:
+    """
+    Tests for semantic invariants.
+
+    No duplicate card names within a section.
+    """
+
+    def test_duplicate_card_in_section_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Duplicate card names in same section are rejected."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42
+2 Lightning Bolt (STA) 42"""
+
+        with pytest.raises(DuplicateCardError) as exc_info:
+            sanitizer.sanitize(raw_input)
+        assert "duplicate" in str(exc_info.value).lower()
+        assert exc_info.value.card_name == "Lightning Bolt"
+
+    def test_same_card_in_different_sections_allowed(
+        self, sanitizer: ArenaDeckSanitizer
+    ) -> None:
+        """Same card in deck and sideboard is allowed."""
+        raw_input = """Deck
+4 Lightning Bolt (STA) 42
+
+Sideboard
+2 Lightning Bolt (STA) 42"""
+
+        result = sanitizer.sanitize(raw_input)
+
+        assert len(result.cards) == 1
+        assert len(result.sideboard) == 1
+
+
+# =============================================================================
+# CARD NAME VALIDATION TESTS (ADVERSARIAL)
+# =============================================================================
 
 
 class TestCardNameValidation:
@@ -290,6 +445,25 @@ class TestCardNameValidation:
             sanitizer.sanitize(raw_input)
         assert "maximum length" in str(exc_info.value).lower()
 
+    def test_unicode_escape_injection_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Unicode escape sequences in names are rejected."""
+        raw_input = "Deck\n4 Card\\u0000Name (STA) 42"
+
+        with pytest.raises(InvalidCardNameError):
+            sanitizer.sanitize(raw_input)
+
+    def test_path_traversal_rejected(self, sanitizer: ArenaDeckSanitizer) -> None:
+        """Path traversal attempts are rejected."""
+        raw_input = "Deck\n4 ../../../etc/passwd (STA) 42"
+
+        with pytest.raises(InvalidCardNameError):
+            sanitizer.sanitize(raw_input)
+
+
+# =============================================================================
+# QUANTITY VALIDATION TESTS (ADVERSARIAL)
+# =============================================================================
+
 
 class TestQuantityValidation:
     """
@@ -322,6 +496,11 @@ class TestQuantityValidation:
         assert "maximum" in str(exc_info.value).lower()
 
 
+# =============================================================================
+# SET CODE VALIDATION TESTS (ADVERSARIAL)
+# =============================================================================
+
+
 class TestSetCodeValidation:
     """
     Tests for set code validation (adversarial).
@@ -349,6 +528,11 @@ class TestSetCodeValidation:
         # Fails because the malformed card name is rejected
         with pytest.raises(ArenaSanitizationError):
             sanitizer.sanitize(raw_input)
+
+
+# =============================================================================
+# ARENA IMPORTABILITY TESTS
+# =============================================================================
 
 
 class TestArenaImportability:
@@ -428,6 +612,12 @@ class TestSanitizeDeckForArena:
 
         with pytest.raises(InvalidQuantityError):
             sanitize_deck_for_arena(cards, card_db)
+
+    def test_empty_dict_rejected(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Empty dict is rejected."""
+        with pytest.raises(InvalidDeckStructureError) as exc_info:
+            sanitize_deck_for_arena({}, card_db)
+        assert "at least" in str(exc_info.value).lower()
 
 
 # =============================================================================
@@ -584,6 +774,7 @@ class TestExceptionHierarchy:
         assert issubclass(InvalidCollectorNumberError, ArenaSanitizationError)
         assert issubclass(InvalidDeckStructureError, ArenaSanitizationError)
         assert issubclass(ArenaImportabilityError, ArenaSanitizationError)
+        assert issubclass(DuplicateCardError, ArenaSanitizationError)
 
     def test_exceptions_contain_context(self) -> None:
         """Exceptions contain useful context."""
@@ -591,6 +782,13 @@ class TestExceptionHierarchy:
         assert error.card_name == "Test Card"
         assert error.reason == "bad reason"
         assert "Test Card" in str(error)
+
+    def test_duplicate_error_contains_context(self) -> None:
+        """DuplicateCardError contains context."""
+        error = DuplicateCardError("Lightning Bolt", "Deck")
+        assert error.card_name == "Lightning Bolt"
+        assert error.section == "Deck"
+        assert "Lightning Bolt" in str(error)
 
 
 # =============================================================================
@@ -650,3 +848,15 @@ class TestBoundaryContract:
 
         assert len(result1.cards) == 1
         assert len(result2.cards) == 1
+
+    def test_no_output_on_failure(self, card_db: dict[str, dict[str, Any]]) -> None:
+        """Failed sanitization produces NO output."""
+        sanitizer = ArenaDeckSanitizer(card_db)
+
+        result = None
+        try:
+            result = sanitizer.sanitize("Deck\n4 <invalid>")
+        except ArenaSanitizationError:
+            pass
+
+        assert result is None

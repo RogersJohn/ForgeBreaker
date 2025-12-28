@@ -129,19 +129,24 @@ class TestExportToArenaTool:
 
         assert result["deck_name"] == "My Deck"
 
-    async def test_export_empty_deck(
+    async def test_export_empty_deck_rejected(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
-        """Empty deck produces minimal export."""
+        """Empty deck is rejected by sanitizer.
+
+        The sanitizer enforces that decks must have at least one card.
+        Empty decks are invalid and rejected with an error.
+        """
         cards: dict[str, int] = {}
         lands: dict[str, int] = {}
 
         result = await export_to_arena_tool(cards, lands, card_db)
 
-        assert result["success"] is True
-        assert result["total_cards"] == 0
-        assert result["arena_format"] == "Deck"
+        # Empty deck is rejected - fail-closed behavior
+        assert result["success"] is False
+        assert result["error"] == "arena_sanitization_failed"
+        assert "at least" in result["message"].lower()
 
     async def test_export_unknown_cards_fail_explicitly(self) -> None:
         """Cards not in database fail with explicit error."""
