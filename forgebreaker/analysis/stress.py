@@ -268,7 +268,7 @@ def _apply_missing_stress(
         None,
     )
 
-    is_key_card = (
+    is_key_card = bool(
         must_draw
         and isinstance(must_draw.observed_value, list)
         and target_card in must_draw.observed_value

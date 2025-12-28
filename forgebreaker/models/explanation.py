@@ -8,6 +8,7 @@ ForgeBreaker explains, it does not advise.
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -48,11 +49,11 @@ class ExplainedResult:
     implying that the result is authoritative or prescriptive.
     """
 
-    value: float | int | str | list | dict
+    value: float | int | str | list[Any] | dict[str, Any]
     explanation: OutcomeExplanation
     label: str = ""  # Human-readable label for the value
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses."""
         return {
             "value": self.value,

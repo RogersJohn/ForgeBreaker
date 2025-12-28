@@ -11,6 +11,7 @@ All recommendations include explanatory text with:
 """
 
 import logging
+from typing import Any
 
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.models.collection import Collection
@@ -150,7 +151,7 @@ def generate_explained_recommendation(
     can_build: bool,
     within_budget: bool,
     fragility: float | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """
     Generate a description with full explanation.
 
