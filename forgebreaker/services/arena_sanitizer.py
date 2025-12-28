@@ -102,17 +102,21 @@ MAX_DECK_ENTRIES = 500
 MIN_TOTAL_CARDS = 1
 
 # Allowed section names (lowercase for comparison)
-ALLOWED_SECTIONS: frozenset[str] = frozenset({
-    "deck",
-    "sideboard",
-    "commander",
-    "companion",
-})
+ALLOWED_SECTIONS: frozenset[str] = frozenset(
+    {
+        "deck",
+        "sideboard",
+        "commander",
+        "companion",
+    }
+)
 
 # Required sections (at least one must be present with cards)
-REQUIRED_SECTIONS: frozenset[str] = frozenset({
-    "deck",
-})
+REQUIRED_SECTIONS: frozenset[str] = frozenset(
+    {
+        "deck",
+    }
+)
 
 # Valid card name character pattern
 VALID_CARD_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9 ',\-/]+$")
@@ -124,18 +128,49 @@ VALID_SET_CODE_PATTERN = re.compile(r"^[A-Z0-9]+$")
 VALID_COLLECTOR_NUMBER_PATTERN = re.compile(r"^[a-zA-Z0-9]+$")
 
 # Set codes that Arena does NOT accept
-ARENA_INVALID_SETS: frozenset[str] = frozenset({
-    "plst", "plist",  # The List
-    "mul",  # Multiverse Legends
-    "mb1", "mb2", "fmb1",  # Mystery Booster
-    "sld",  # Secret Lair
-    "prm", "phed", "plg20", "plg21", "plg22", "plg23", "pmei", "pnat",  # Promos
-    "j14", "j15", "j16", "j17", "j18", "j19", "j20", "j21", "j22",  # Judge promos
-    "wc97", "wc98", "wc99", "wc00", "wc01", "wc02", "wc03", "wc04",  # World Champ
-    "cei", "ced",  # Collectors' Edition
-    "cmb1", "cmb2", "30a",  # Paper-only
-    "rin", "ren",  # Foreign-only
-})
+ARENA_INVALID_SETS: frozenset[str] = frozenset(
+    {
+        "plst",
+        "plist",  # The List
+        "mul",  # Multiverse Legends
+        "mb1",
+        "mb2",
+        "fmb1",  # Mystery Booster
+        "sld",  # Secret Lair
+        "prm",
+        "phed",
+        "plg20",
+        "plg21",
+        "plg22",
+        "plg23",
+        "pmei",
+        "pnat",  # Promos
+        "j14",
+        "j15",
+        "j16",
+        "j17",
+        "j18",
+        "j19",
+        "j20",
+        "j21",
+        "j22",  # Judge promos
+        "wc97",
+        "wc98",
+        "wc99",
+        "wc00",
+        "wc01",
+        "wc02",
+        "wc03",
+        "wc04",  # World Champ
+        "cei",
+        "ced",  # Collectors' Edition
+        "cmb1",
+        "cmb2",
+        "30a",  # Paper-only
+        "rin",
+        "ren",  # Foreign-only
+    }
+)
 
 
 # =============================================================================
@@ -423,9 +458,7 @@ class ArenaDeckSanitizer:
         """
         # Type check
         if not isinstance(raw_input, str):
-            raise InvalidRawInputError(
-                f"Input must be a string, got {type(raw_input).__name__}"
-            )
+            raise InvalidRawInputError(f"Input must be a string, got {type(raw_input).__name__}")
 
         # Empty check
         if not raw_input:
@@ -501,9 +534,7 @@ class ArenaDeckSanitizer:
             )
 
         if total_entries < MIN_TOTAL_CARDS:
-            raise InvalidDeckStructureError(
-                f"Deck must have at least {MIN_TOTAL_CARDS} card"
-            )
+            raise InvalidDeckStructureError(f"Deck must have at least {MIN_TOTAL_CARDS} card")
 
     # =========================================================================
     # PHASE 4: CARD-LEVEL INVARIANT ENFORCEMENT
@@ -584,15 +615,11 @@ class ArenaDeckSanitizer:
         try:
             quantity = int(quantity_str)
         except ValueError as e:
-            raise InvalidQuantityError(
-                card_name, quantity_str, "Cannot parse as integer"
-            ) from e
+            raise InvalidQuantityError(card_name, quantity_str, "Cannot parse as integer") from e
 
         # Check bounds
         if quantity < MIN_CARD_QUANTITY:
-            raise InvalidQuantityError(
-                card_name, quantity, f"Must be at least {MIN_CARD_QUANTITY}"
-            )
+            raise InvalidQuantityError(card_name, quantity, f"Must be at least {MIN_CARD_QUANTITY}")
 
         if quantity > MAX_CARD_QUANTITY:
             raise InvalidQuantityError(
@@ -619,16 +646,12 @@ class ArenaDeckSanitizer:
 
         # Length check
         if len(name) > MAX_CARD_NAME_LENGTH:
-            raise InvalidCardNameError(
-                name, f"Exceeds maximum length of {MAX_CARD_NAME_LENGTH}"
-            )
+            raise InvalidCardNameError(name, f"Exceeds maximum length of {MAX_CARD_NAME_LENGTH}")
 
         # Control character check
         for char in name:
             if ord(char) < 32 or ord(char) == 127:
-                raise InvalidCardNameError(
-                    name, f"Contains control character (ord={ord(char)})"
-                )
+                raise InvalidCardNameError(name, f"Contains control character (ord={ord(char)})")
 
         # Character class check
         if not VALID_CARD_NAME_PATTERN.match(name):
@@ -680,26 +703,21 @@ class ArenaDeckSanitizer:
             )
 
         if not VALID_SET_CODE_PATTERN.match(set_code):
-            raise InvalidSetCodeError(
-                card_name, set_code, "Must be uppercase alphanumeric"
-            )
+            raise InvalidSetCodeError(card_name, set_code, "Must be uppercase alphanumeric")
 
         # Validate collector number format
         if not collector_number:
-            raise InvalidCollectorNumberError(
-                card_name, collector_number, "Cannot be empty"
-            )
+            raise InvalidCollectorNumberError(card_name, collector_number, "Cannot be empty")
 
         if len(collector_number) > MAX_COLLECTOR_NUMBER_LENGTH:
             raise InvalidCollectorNumberError(
-                card_name, collector_number,
+                card_name,
+                collector_number,
                 f"Exceeds maximum length of {MAX_COLLECTOR_NUMBER_LENGTH}",
             )
 
         if not VALID_COLLECTOR_NUMBER_PATTERN.match(collector_number):
-            raise InvalidCollectorNumberError(
-                card_name, collector_number, "Must be alphanumeric"
-            )
+            raise InvalidCollectorNumberError(card_name, collector_number, "Must be alphanumeric")
 
         # Check if set is known-invalid
         if set_code.lower() in ARENA_INVALID_SETS:
@@ -712,9 +730,7 @@ class ArenaDeckSanitizer:
         if card_data:
             games = card_data.get("games", [])
             if "arena" not in games:
-                raise ArenaImportabilityError(
-                    card_name, set_code, "Card is not available on Arena"
-                )
+                raise ArenaImportabilityError(card_name, set_code, "Card is not available on Arena")
 
         return set_code, collector_number
 
@@ -743,9 +759,7 @@ class ArenaDeckSanitizer:
         # Get set code (canonicalize to uppercase)
         db_set = card_data.get("set", "")
         if not db_set:
-            raise ArenaImportabilityError(
-                card_name, "UNKNOWN", "No set information available"
-            )
+            raise ArenaImportabilityError(card_name, "UNKNOWN", "No set information available")
         db_set = db_set.upper()
 
         # Check if set is valid
@@ -758,9 +772,7 @@ class ArenaDeckSanitizer:
 
         # Validate database values
         if not VALID_SET_CODE_PATTERN.match(db_set):
-            raise InvalidSetCodeError(
-                card_name, db_set, "Database set code is malformed"
-            )
+            raise InvalidSetCodeError(card_name, db_set, "Database set code is malformed")
         if not VALID_COLLECTOR_NUMBER_PATTERN.match(db_collector):
             raise InvalidCollectorNumberError(
                 card_name, db_collector, "Database collector number is malformed"
@@ -816,15 +828,11 @@ def validate_card_name(name: str) -> None:
         raise InvalidCardNameError(name, "Card name cannot be whitespace-only")
 
     if len(name) > MAX_CARD_NAME_LENGTH:
-        raise InvalidCardNameError(
-            name, f"Exceeds maximum length of {MAX_CARD_NAME_LENGTH}"
-        )
+        raise InvalidCardNameError(name, f"Exceeds maximum length of {MAX_CARD_NAME_LENGTH}")
 
     for char in name:
         if ord(char) < 32 or ord(char) == 127:
-            raise InvalidCardNameError(
-                name, f"Contains control character (ord={ord(char)})"
-            )
+            raise InvalidCardNameError(name, f"Contains control character (ord={ord(char)})")
 
     if not VALID_CARD_NAME_PATTERN.match(name):
         raise InvalidCardNameError(
@@ -847,14 +855,10 @@ def validate_quantity(card_name: str, quantity: int) -> None:
         )
 
     if quantity < MIN_CARD_QUANTITY:
-        raise InvalidQuantityError(
-            card_name, quantity, f"Must be at least {MIN_CARD_QUANTITY}"
-        )
+        raise InvalidQuantityError(card_name, quantity, f"Must be at least {MIN_CARD_QUANTITY}")
 
     if quantity > MAX_CARD_QUANTITY:
-        raise InvalidQuantityError(
-            card_name, quantity, f"Exceeds maximum of {MAX_CARD_QUANTITY}"
-        )
+        raise InvalidQuantityError(card_name, quantity, f"Exceeds maximum of {MAX_CARD_QUANTITY}")
 
 
 def validate_set_code(card_name: str, set_code: str) -> None:
@@ -888,14 +892,13 @@ def validate_collector_number(card_name: str, collector_number: str) -> None:
 
     if len(collector_number) > MAX_COLLECTOR_NUMBER_LENGTH:
         raise InvalidCollectorNumberError(
-            card_name, collector_number,
+            card_name,
+            collector_number,
             f"Exceeds maximum length of {MAX_COLLECTOR_NUMBER_LENGTH}",
         )
 
     if not VALID_COLLECTOR_NUMBER_PATTERN.match(collector_number):
-        raise InvalidCollectorNumberError(
-            card_name, collector_number, "Must be alphanumeric"
-        )
+        raise InvalidCollectorNumberError(card_name, collector_number, "Must be alphanumeric")
 
 
 # =============================================================================
@@ -929,9 +932,7 @@ def sanitize_deck_for_arena(
         raise InvalidDeckStructureError("Maindeck cards cannot be None")
 
     if not isinstance(cards, dict):
-        raise InvalidDeckStructureError(
-            f"Maindeck must be a dict, got {type(cards).__name__}"
-        )
+        raise InvalidDeckStructureError(f"Maindeck must be a dict, got {type(cards).__name__}")
 
     if sideboard is not None and not isinstance(sideboard, dict):
         raise InvalidDeckStructureError(
@@ -941,9 +942,7 @@ def sanitize_deck_for_arena(
     # Check non-empty
     total_cards = len(cards) + (len(sideboard) if sideboard else 0)
     if total_cards < MIN_TOTAL_CARDS:
-        raise InvalidDeckStructureError(
-            f"Deck must have at least {MIN_TOTAL_CARDS} card"
-        )
+        raise InvalidDeckStructureError(f"Deck must have at least {MIN_TOTAL_CARDS} card")
 
     # Validate and build maindeck
     sanitized_cards: list[SanitizedCard] = []
@@ -993,9 +992,7 @@ def _get_canonical_printing(
     """Get canonical Arena-valid printing for a card."""
     card_data = card_db.get(card_name)
     if not card_data:
-        raise ArenaImportabilityError(
-            card_name, "UNKNOWN", "Card not found in database"
-        )
+        raise ArenaImportabilityError(card_name, "UNKNOWN", "Card not found in database")
 
     # Check Arena availability
     games = card_data.get("games", [])
@@ -1009,9 +1006,7 @@ def _get_canonical_printing(
     # Get and validate set code
     set_code = card_data.get("set", "").upper()
     if not set_code:
-        raise ArenaImportabilityError(
-            card_name, "UNKNOWN", "No set information available"
-        )
+        raise ArenaImportabilityError(card_name, "UNKNOWN", "No set information available")
 
     if set_code.lower() in ARENA_INVALID_SETS:
         raise ArenaImportabilityError(

@@ -386,9 +386,7 @@ class TestSemanticInvariants:
         assert "duplicate" in str(exc_info.value).lower()
         assert exc_info.value.card_name == "Lightning Bolt"
 
-    def test_same_card_in_different_sections_allowed(
-        self, sanitizer: ArenaDeckSanitizer
-    ) -> None:
+    def test_same_card_in_different_sections_allowed(self, sanitizer: ArenaDeckSanitizer) -> None:
         """Same card in deck and sideboard is allowed."""
         raw_input = """Deck
 4 Lightning Bolt (STA) 42

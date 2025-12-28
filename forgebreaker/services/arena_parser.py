@@ -114,12 +114,14 @@ class ArenaParser:
     _SIMPLE_FORMAT_PATTERN = re.compile(r"^(\d+)\s+(.+)$")
 
     # Known section headers (lowercase)
-    KNOWN_SECTIONS: frozenset[str] = frozenset({
-        "deck",
-        "sideboard",
-        "commander",
-        "companion",
-    })
+    KNOWN_SECTIONS: frozenset[str] = frozenset(
+        {
+            "deck",
+            "sideboard",
+            "commander",
+            "companion",
+        }
+    )
 
     def parse(self, raw_input: str) -> ParsedDeckStructure:
         """
