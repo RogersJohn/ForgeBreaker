@@ -11,7 +11,6 @@ from forgebreaker.services.synergy_finder import (
     format_synergy_results,
 )
 
-
 # Default format for testing - all cards in test db are assumed legal
 DEFAULT_FORMAT = "standard"
 

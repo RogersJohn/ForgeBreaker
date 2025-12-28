@@ -11,7 +11,7 @@ the player owns AND that are legal in the target format.
 from dataclasses import dataclass
 from typing import Any
 
-from forgebreaker.models.allowed_cards import AllowedCardSet, build_allowed_set
+from forgebreaker.models.allowed_cards import build_allowed_set
 from forgebreaker.models.collection import Collection
 
 # Synergy patterns: (trigger_keyword, synergy_keywords)

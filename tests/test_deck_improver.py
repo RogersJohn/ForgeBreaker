@@ -15,7 +15,6 @@ from forgebreaker.services.deck_improver import (
     format_deck_analysis,
 )
 
-
 # Default format for testing - all cards in test db are assumed legal
 DEFAULT_FORMAT = "standard"
 

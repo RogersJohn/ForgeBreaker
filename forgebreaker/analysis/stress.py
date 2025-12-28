@@ -565,9 +565,9 @@ def _apply_hostile_meta_stress(
         violation_reason_here = ""
         if belief_violated_here and not violated_belief:
             violation_reason_here = (
-                f"The belief that key cards will resolve fails. "
-                f"In a hostile meta, opponents have more answers, "
-                f"and the deck's reliance on specific cards becomes a liability."
+                "The belief that key cards will resolve fails. "
+                "In a hostile meta, opponents have more answers, "
+                "and the deck's reliance on specific cards becomes a liability."
             )
             violated_belief = key_assumption.name
             violation_explanation = violation_reason_here

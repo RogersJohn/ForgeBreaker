@@ -930,7 +930,10 @@ async def find_synergies_tool(
     if not format_legal_cards:
         return {
             "found": False,
-            "message": f"Unknown format '{format_name}'. Supported: standard, historic, explorer, pioneer, modern, legacy, vintage, brawl, timeless.",
+            "message": (
+                f"Unknown format '{format_name}'. Supported: standard, historic, "
+                "explorer, pioneer, modern, legacy, vintage, brawl, timeless."
+            ),
         }
 
     result = find_synergies(
@@ -1044,7 +1047,10 @@ async def improve_deck_tool(
     if not format_legal_cards:
         return {
             "success": False,
-            "message": f"Unknown format '{format_name}'. Supported: standard, historic, explorer, pioneer, modern, legacy, vintage, brawl, timeless.",
+            "message": (
+                f"Unknown format '{format_name}'. Supported: standard, historic, "
+                "explorer, pioneer, modern, legacy, vintage, brawl, timeless."
+            ),
         }
 
     analysis = analyze_and_improve_deck(
