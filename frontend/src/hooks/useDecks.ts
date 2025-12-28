@@ -20,3 +20,15 @@ export function useDeckDistance(
     enabled: !!userId && !!format && !!deckName,
   })
 }
+
+export function useDeckAssumptions(
+  userId: string,
+  format: string,
+  deckName: string
+) {
+  return useQuery({
+    queryKey: ['assumptions', userId, format, deckName],
+    queryFn: () => apiClient.getDeckAssumptions(userId, format, deckName),
+    enabled: !!userId && !!format && !!deckName,
+  })
+}

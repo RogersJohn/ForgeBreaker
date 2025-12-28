@@ -75,6 +75,25 @@ export interface ChatResponse {
   tool_calls: Array<{ name: string; input: Record<string, unknown> }>
 }
 
+export interface DeckAssumption {
+  name: string
+  category: string
+  description: string
+  current_value: unknown
+  expected_range: [number, number]
+  health: 'healthy' | 'warning' | 'critical'
+  explanation: string
+  adjustable: boolean
+}
+
+export interface AssumptionSetResponse {
+  deck_name: string
+  archetype: string
+  assumptions: DeckAssumption[]
+  overall_fragility: number
+  fragility_explanation: string
+}
+
 class ApiClient {
   private baseUrl: string
 
@@ -157,6 +176,17 @@ class ApiClient {
       method: 'POST',
       body: JSON.stringify({ user_id: userId, messages }),
     })
+  }
+
+  // Assumptions
+  async getDeckAssumptions(
+    userId: string,
+    format: string,
+    deckName: string
+  ): Promise<AssumptionSetResponse> {
+    return this.request(
+      `/assumptions/${userId}/${format}/${encodeURIComponent(deckName)}`
+    )
   }
 }
 

@@ -11,6 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from forgebreaker.analysis.assumptions import extract_assumptions
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.analysis.ranker import rank_decks, rank_decks_with_ml
 from forgebreaker.db import (
@@ -426,6 +427,34 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 },
             },
             "required": ["user_id", "deck_text"],
+        },
+    ),
+    ToolDefinition(
+        name="get_deck_assumptions",
+        description=(
+            "Analyze a deck to surface its implicit assumptions. "
+            "Use when a user asks 'what does this deck rely on?', 'why is my deck inconsistent?', "
+            "'what assumptions does this deck make?', or 'what makes this deck fragile?'. "
+            "Returns mana curve expectations, key card dependencies, draw consistency, "
+            "and interaction timing assumptions with health indicators."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "string",
+                    "description": "The user's ID",
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Game format the deck belongs to",
+                },
+                "deck_name": {
+                    "type": "string",
+                    "description": "Name of the meta deck to analyze",
+                },
+            },
+            "required": ["user_id", "format", "deck_name"],
         },
     ),
 ]
@@ -941,6 +970,62 @@ async def improve_deck_tool(
     }
 
 
+async def get_deck_assumptions_tool(
+    session: AsyncSession,
+    format_name: str,
+    deck_name: str,
+) -> dict[str, Any]:
+    """
+    Analyze a deck to surface its implicit assumptions.
+
+    Args:
+        session: Database session
+        format_name: Game format
+        deck_name: Name of the deck to analyze
+
+    Returns:
+        Dict with deck assumptions and fragility analysis
+    """
+    # Get the deck
+    db_deck = await get_meta_deck(session, deck_name, format_name)
+    if db_deck is None:
+        return {"error": f"Deck '{deck_name}' not found in {format_name}"}
+
+    deck = meta_deck_to_model(db_deck)
+    card_db = _get_card_db_safe()
+
+    # Extract assumptions
+    assumption_set = extract_assumptions(deck, card_db)
+
+    return {
+        "deck_name": assumption_set.deck_name,
+        "archetype": assumption_set.archetype,
+        "overall_fragility": round(assumption_set.overall_fragility, 2),
+        "fragility_explanation": assumption_set.fragility_explanation,
+        "assumptions": [
+            {
+                "name": a.name,
+                "category": a.category.value,
+                "description": a.description,
+                "current_value": a.current_value,
+                "expected_range": list(a.expected_range),
+                "health": a.health.value,
+                "explanation": a.explanation,
+                "adjustable": a.adjustable,
+            }
+            for a in assumption_set.assumptions
+        ],
+        "warnings": [
+            {
+                "name": a.name,
+                "description": a.description,
+                "explanation": a.explanation,
+            }
+            for a in assumption_set.get_warnings()
+        ],
+    }
+
+
 async def execute_tool(
     session: AsyncSession,
     tool_name: str,
@@ -1056,6 +1141,12 @@ async def execute_tool(
             deck_text=arguments["deck_text"],
             card_db=card_db,
             max_suggestions=arguments.get("max_suggestions", 5),
+        )
+    elif tool_name == "get_deck_assumptions":
+        return await get_deck_assumptions_tool(
+            session,
+            format_name=arguments["format"],
+            deck_name=arguments["deck_name"],
         )
     else:
         raise ValueError(f"Unknown tool: {tool_name}")

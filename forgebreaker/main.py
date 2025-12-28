@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from forgebreaker.api import (
+    assumptions_router,
     chat_router,
     collection_router,
     decks_router,
@@ -29,6 +30,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.include_router(assumptions_router)
 app.include_router(chat_router)
 app.include_router(collection_router)
 app.include_router(decks_router)

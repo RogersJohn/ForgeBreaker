@@ -1,5 +1,6 @@
 import type { DeckResponse, DistanceResponse } from '../api/client'
-import { useDeckDistance } from '../hooks/useDecks'
+import { useDeckDistance, useDeckAssumptions } from '../hooks/useDecks'
+import { AssumptionPanel } from './AssumptionPanel'
 
 interface DeckDetailProps {
   deck: DeckResponse
@@ -86,6 +87,11 @@ function CardList({
 
 export function DeckDetail({ deck, userId, onClose }: DeckDetailProps) {
   const { data: distance, isLoading } = useDeckDistance(
+    userId,
+    deck.format,
+    deck.name
+  )
+  const { data: assumptions, isLoading: assumptionsLoading } = useDeckAssumptions(
     userId,
     deck.format,
     deck.name
@@ -200,6 +206,15 @@ export function DeckDetail({ deck, userId, onClose }: DeckDetailProps) {
             You have all the cards to build this deck!
           </div>
         )}
+      </div>
+
+      {/* Deck Assumptions */}
+      <div className="px-6 py-4 border-b border-gray-200">
+        {assumptions ? (
+          <AssumptionPanel data={assumptions} isLoading={assumptionsLoading} />
+        ) : assumptionsLoading ? (
+          <div className="text-sm text-gray-500">Loading assumptions...</div>
+        ) : null}
       </div>
 
       {/* Card Lists */}
