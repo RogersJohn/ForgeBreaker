@@ -101,6 +101,75 @@ export interface AssumptionSetResponse {
   fragility_explanation: string
 }
 
+export type StressType = 'underperform' | 'missing' | 'delayed' | 'hostile_meta'
+
+export interface StressScenarioRequest {
+  stress_type: StressType
+  target: string
+  intensity?: number
+}
+
+/**
+ * How a belief changes under a hypothetical stress scenario.
+ */
+export interface StressedAssumption {
+  name: string
+  original_value: unknown
+  stressed_value: unknown
+  original_health: string
+  stressed_health: string
+  change_explanation: string
+  belief_violated: boolean
+  violation_reason: string
+}
+
+/**
+ * Result of exploring a stress scenario with a deck.
+ *
+ * A breaking point occurs when a specific belief can no longer be held,
+ * NOT when a numeric threshold is crossed.
+ */
+export interface StressResultResponse {
+  deck_name: string
+  stress_type: string
+  target: string
+  intensity: number
+  original_fragility: number
+  stressed_fragility: number
+  fragility_change: number
+  affected_assumptions: StressedAssumption[]
+  // Semantic fields
+  assumption_violated: boolean
+  violated_belief: string
+  violation_explanation: string
+  exploration_summary: string
+  considerations: string[]
+  // Backwards compatibility
+  breaking_point: boolean  // Deprecated: use assumption_violated
+  explanation: string  // Deprecated: use exploration_summary
+  recommendations: string[]  // Deprecated: use considerations
+}
+
+/**
+ * Analysis of which belief fails first under stress.
+ *
+ * This identifies the most vulnerable assumption, not a prediction of failure.
+ */
+export interface BreakingPointResponse {
+  deck_name: string
+  // Semantic fields
+  most_vulnerable_belief: string
+  stress_threshold: number
+  failing_scenario: StressScenarioRequest | null
+  exploration_insight: string
+  // Backwards compatibility
+  weakest_assumption: string  // Deprecated: use most_vulnerable_belief
+  breaking_intensity: number  // Deprecated: use stress_threshold
+  resilience_score: number  // Deprecated: removed concept
+  breaking_scenario: StressScenarioRequest | null  // Deprecated: use failing_scenario
+  explanation: string  // Deprecated: use exploration_insight
+}
+
 class ApiClient {
   private baseUrl: string
 
@@ -193,6 +262,32 @@ class ApiClient {
   ): Promise<AssumptionSetResponse> {
     return this.request(
       `/assumptions/${userId}/${format}/${encodeURIComponent(deckName)}`
+    )
+  }
+
+  // Stress Testing
+  async stressDeck(
+    userId: string,
+    format: string,
+    deckName: string,
+    scenario: StressScenarioRequest
+  ): Promise<StressResultResponse> {
+    return this.request(
+      `/stress/${userId}/${format}/${encodeURIComponent(deckName)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(scenario),
+      }
+    )
+  }
+
+  async getBreakingPoint(
+    userId: string,
+    format: string,
+    deckName: string
+  ): Promise<BreakingPointResponse> {
+    return this.request(
+      `/stress/breaking-point/${userId}/${format}/${encodeURIComponent(deckName)}`
     )
   }
 }

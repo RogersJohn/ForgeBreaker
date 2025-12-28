@@ -81,7 +81,7 @@ class TestToolDefinitions:
 
     def test_tool_count(self) -> None:
         """Expected number of tools are defined."""
-        assert len(TOOL_DEFINITIONS) == 10
+        assert len(TOOL_DEFINITIONS) == 12
 
     def test_tool_names(self) -> None:
         """Expected tools are defined."""
