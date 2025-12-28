@@ -853,10 +853,6 @@ class TestBoundaryContract:
         """Failed sanitization produces NO output."""
         sanitizer = ArenaDeckSanitizer(card_db)
 
-        result = None
-        try:
-            result = sanitizer.sanitize("Deck\n4 <invalid>")
-        except ArenaSanitizationError:
-            pass
-
-        assert result is None
+        # Verify exception is raised (no output produced)
+        with pytest.raises(ArenaSanitizationError):
+            sanitizer.sanitize("Deck\n4 <invalid>")
