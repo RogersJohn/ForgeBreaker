@@ -17,42 +17,64 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
 
   return (
     <div className="min-h-[calc(100vh-var(--header-height,120px))] flex flex-col items-center justify-center px-4">
-      {/* Hero Section */}
-      <div className="max-w-2xl text-center mb-12">
+      {/* Hero - Lead with the question */}
+      <div className="max-w-2xl text-center mb-10">
         <h2
-          className="text-3xl font-bold mb-4"
+          className="text-3xl font-bold mb-6"
           style={{ color: 'var(--color-text-primary)' }}
         >
-          Understand your deck, not just build it
+          Why does my deck feel inconsistent?
         </h2>
         <p
-          className="text-lg mb-8"
+          className="text-lg mb-4"
           style={{ color: 'var(--color-text-secondary)' }}
         >
-          A thinking tool for MTG Arena players who want to know why their decks
-          work—or why they don't.
+          That's the question ForgeBreaker helps you answer.
         </p>
       </div>
 
-      {/* Value Propositions */}
-      <div className="grid md:grid-cols-3 gap-6 max-w-4xl mb-12">
-        <ValueCard
-          title="Surface Assumptions"
-          description="See what your deck relies on: mana curve expectations, key card dependencies, interaction timing."
+      {/* The Questions ForgeBreaker Answers */}
+      <div className="max-w-2xl mb-10">
+        <div
+          className="rounded-lg p-6"
+          style={{
+            backgroundColor: 'var(--color-bg-surface)',
+            border: '1px solid var(--color-border)',
+          }}
+        >
+          <p
+            className="text-sm font-medium mb-4"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            ForgeBreaker helps you answer:
+          </p>
+          <ul className="space-y-3">
+            <QuestionItem>Which card is my deck secretly relying on?</QuestionItem>
+            <QuestionItem>What happens when this assumption fails?</QuestionItem>
+            <QuestionItem>What part of my deck breaks first?</QuestionItem>
+          </ul>
+        </div>
+      </div>
+
+      {/* Core Concepts */}
+      <div className="grid md:grid-cols-3 gap-4 max-w-4xl mb-10">
+        <ConceptCard
+          concept="Assumptions"
+          explanation="Every deck relies on things being true: land drops, key cards connecting, removal arriving on time. ForgeBreaker makes these visible."
         />
-        <ValueCard
-          title="Stress Test Ideas"
-          description="Intentionally break things. Simulate underperformance to find fragility before your opponent does."
+        <ConceptCard
+          concept="Fragility"
+          explanation="How much does your deck suffer when one thing goes wrong? Find out which assumptions your deck can't afford to lose."
         />
-        <ValueCard
-          title="Explain Outcomes"
-          description="Every result comes with an explanation—and an honest acknowledgment of uncertainty."
+        <ConceptCard
+          concept="Breaking Point"
+          explanation="Stress your deck's assumptions intentionally. Discover what fails first—before your opponent finds it for you."
         />
       </div>
 
       {/* Login Form */}
       <div
-        className="rounded-lg shadow p-8 w-full max-w-md"
+        className="rounded-lg shadow p-8 w-full max-w-md mb-10"
         style={{
           backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid var(--color-border)',
@@ -64,7 +86,7 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
             className="text-sm font-medium"
             style={{ color: 'var(--color-text-secondary)' }}
           >
-            Enter a username to get started
+            Enter a username to start exploring
           </label>
           <div className="flex gap-3">
             <input
@@ -97,41 +119,67 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
         </form>
       </div>
 
-      {/* Non-claims Section */}
-      <div className="mt-12 max-w-2xl text-center">
-        <p
-          className="text-sm leading-relaxed"
-          style={{ color: 'var(--color-text-secondary)', opacity: 0.7 }}
+      {/* What ForgeBreaker Does NOT Do */}
+      <div className="max-w-2xl">
+        <div
+          className="rounded-lg p-5"
+          style={{
+            backgroundColor: 'var(--color-bg-elevated)',
+            border: '1px solid var(--color-border)',
+          }}
         >
-          ForgeBreaker is not a meta aggregation platform, ladder optimizer, or winrate predictor.
-          It helps you think about your deck—it doesn't think for you.
-          ML-assisted recommendations have known limitations.
-        </p>
+          <p
+            className="text-xs font-medium mb-3"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            What ForgeBreaker does NOT do:
+          </p>
+          <ul
+            className="text-xs space-y-1"
+            style={{ color: 'var(--color-text-secondary)', opacity: 0.8 }}
+          >
+            <li>Does not track your ladder performance or match history</li>
+            <li>Does not predict your personal winrate</li>
+            <li>Does not tell you which deck is "statistically best"</li>
+            <li>Does not replace playtesting—it helps you know what to watch for</li>
+          </ul>
+        </div>
       </div>
     </div>
   )
 }
 
-function ValueCard({ title, description }: { title: string; description: string }) {
+function QuestionItem({ children }: { children: React.ReactNode }) {
+  return (
+    <li
+      className="text-base font-medium"
+      style={{ color: 'var(--color-text-primary)' }}
+    >
+      "{children}"
+    </li>
+  )
+}
+
+function ConceptCard({ concept, explanation }: { concept: string; explanation: string }) {
   return (
     <div
-      className="rounded-lg p-6"
+      className="rounded-lg p-5"
       style={{
-        backgroundColor: 'var(--color-bg-surface)',
+        backgroundColor: 'var(--color-bg-elevated)',
         border: '1px solid var(--color-border)',
       }}
     >
       <h3
-        className="text-lg font-semibold mb-2"
-        style={{ color: 'var(--color-text-primary)' }}
+        className="text-sm font-bold mb-2"
+        style={{ color: 'var(--color-accent-primary)' }}
       >
-        {title}
+        {concept}
       </h3>
       <p
         className="text-sm leading-relaxed"
         style={{ color: 'var(--color-text-secondary)' }}
       >
-        {description}
+        {explanation}
       </p>
     </div>
   )
