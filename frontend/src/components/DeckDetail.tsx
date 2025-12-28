@@ -1,6 +1,9 @@
+import { useState } from 'react'
 import type { DeckResponse, DistanceResponse } from '../api/client'
 import { useDeckDistance, useDeckAssumptions } from '../hooks/useDecks'
 import { AssumptionPanel } from './AssumptionPanel'
+import { StressPanel } from './StressPanel'
+import { BreakingPointFinder } from './BreakingPointFinder'
 
 interface DeckDetailProps {
   deck: DeckResponse
@@ -215,6 +218,21 @@ export function DeckDetail({ deck, userId, onClose }: DeckDetailProps) {
         ) : assumptionsLoading ? (
           <div className="text-sm text-gray-500">Loading assumptions...</div>
         ) : null}
+      </div>
+
+      {/* Stress Testing */}
+      <div className="px-6 py-4 border-b border-gray-200 space-y-4">
+        <BreakingPointFinder
+          userId={userId}
+          format={deck.format}
+          deckName={deck.name}
+        />
+        <StressPanel
+          userId={userId}
+          format={deck.format}
+          deckName={deck.name}
+          assumptions={assumptions}
+        />
       </div>
 
       {/* Card Lists */}

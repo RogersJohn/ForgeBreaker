@@ -12,6 +12,7 @@ from forgebreaker.api import (
     decks_router,
     distance_router,
     health_router,
+    stress_router,
 )
 from forgebreaker.config import settings
 from forgebreaker.db.database import init_db
@@ -36,6 +37,7 @@ app.include_router(collection_router)
 app.include_router(decks_router)
 app.include_router(distance_router)
 app.include_router(health_router)
+app.include_router(stress_router)
 
 app.add_middleware(
     CORSMiddleware,
