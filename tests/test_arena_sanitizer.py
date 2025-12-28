@@ -34,7 +34,6 @@ from forgebreaker.services.arena_sanitizer import (
     MAX_CARD_NAME_LENGTH,
     MAX_CARD_QUANTITY,
     MAX_DECK_ENTRIES,
-    MAX_RAW_INPUT_LENGTH,
     ArenaDeckSanitizer,
     ArenaImportabilityError,
     ArenaSanitizationError,
