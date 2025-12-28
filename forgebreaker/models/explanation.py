@@ -97,7 +97,7 @@ def create_completion_explanation(
     else:
         summary = f"Your collection is missing {missing_cards} cards for this deck."
         conditional = (
-            "This count reflects exact matches. " "Functional alternatives are not considered."
+            "This count reflects exact matches. Functional alternatives are not considered."
         )
 
     assumptions = []
@@ -161,8 +161,7 @@ def create_fragility_explanation(
     # Describe what fragility represents, not what to do about it
     if fragility < 0.2:
         summary = (
-            f"This {archetype} deck's characteristics are within typical ranges "
-            f"for its archetype."
+            f"This {archetype} deck's characteristics are within typical ranges for its archetype."
         )
     elif fragility < 0.5:
         summary = (
