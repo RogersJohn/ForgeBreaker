@@ -1,5 +1,6 @@
 import type { DeckResponse } from '../api/client'
 import { useDeckDistance } from '../hooks/useDecks'
+import { ExplanationTooltip } from './ExplanationBlock'
 
 interface DeckCardProps {
   deck: DeckResponse
@@ -29,13 +30,27 @@ export function DeckCard({ deck, userId, onSelect }: DeckCardProps) {
         </span>
       </div>
 
-      {/* Win rate and meta share */}
+      {/* Win rate and meta share with explanations */}
       <div className="flex gap-4 text-sm text-gray-500 mb-3">
         {deck.win_rate != null && (
-          <span>Win rate: {(deck.win_rate * 100).toFixed(1)}%</span>
+          <ExplanationTooltip
+            summary="Win rate from tournament data and ladder samples."
+            uncertainty="Actual results vary based on skill, meta, and sample size."
+          >
+            <span className="cursor-help border-b border-dotted border-gray-400">
+              Win rate: {(deck.win_rate * 100).toFixed(1)}%
+            </span>
+          </ExplanationTooltip>
         )}
         {deck.meta_share != null && (
-          <span>Meta: {(deck.meta_share * 100).toFixed(1)}%</span>
+          <ExplanationTooltip
+            summary="How common this deck is in the current meta."
+            uncertainty="Meta share shifts with new releases and bans."
+          >
+            <span className="cursor-help border-b border-dotted border-gray-400">
+              Meta: {(deck.meta_share * 100).toFixed(1)}%
+            </span>
+          </ExplanationTooltip>
         )}
       </div>
 

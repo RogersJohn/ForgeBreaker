@@ -4,6 +4,10 @@ Deck ranking algorithm.
 Ranks meta decks by suitability for a user's collection, considering
 completion percentage, wildcard cost, win rate, and meta share.
 Optionally uses MLForge for ML-based recommendation scoring.
+
+All recommendations include explanatory text with:
+- References to relevant assumptions
+- Explicit uncertainty language
 """
 
 import logging
@@ -11,6 +15,10 @@ import logging
 from forgebreaker.analysis.distance import calculate_deck_distance
 from forgebreaker.models.collection import Collection
 from forgebreaker.models.deck import DeckDistance, MetaDeck, RankedDeck
+from forgebreaker.models.explanation import (
+    UNCERTAINTY_PHRASES,
+    create_recommendation_explanation,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,16 +113,25 @@ def _generate_recommendation_reason(
     can_build: bool,
     within_budget: bool,
 ) -> str:
-    """Generate a human-readable recommendation reason."""
+    """
+    Generate a human-readable recommendation reason.
+
+    Includes uncertainty language to be honest about limitations.
+    """
     if can_build:
-        return "You can build this deck now!"
+        return (
+            "You can build this deck now! "
+            "Performance depends on your experience with the archetype."
+        )
 
     missing = distance.missing_cards
     pct = int(distance.completion_percentage * 100)
     cost = distance.wildcard_cost
 
     if within_budget:
-        return f"{pct}% complete, needs {missing} cards ({cost.total()} wildcards)"
+        reason = f"{pct}% complete, needs {missing} cards ({cost.total()} wildcards). "
+        reason += UNCERTAINTY_PHRASES["assumption_based"]
+        return reason
 
     # Highlight the expensive rarities
     expensive_parts: list[str] = []
@@ -124,9 +141,53 @@ def _generate_recommendation_reason(
         expensive_parts.append(f"{cost.rare} rare")
 
     if expensive_parts:
-        return f"{pct}% complete, needs {', '.join(expensive_parts)} wildcards"
+        reason = f"{pct}% complete, needs {', '.join(expensive_parts)} wildcards. "
+        reason += "Consider if the investment matches your goals."
+        return reason
 
     return f"{pct}% complete, needs {missing} cards"
+
+
+def generate_explained_recommendation(
+    distance: DeckDistance,
+    score: float,
+    can_build: bool,
+    within_budget: bool,
+    fragility: float | None = None,
+) -> dict:
+    """
+    Generate a recommendation with full explanation.
+
+    Returns a dictionary suitable for API responses that includes:
+    - The recommendation reason
+    - Assumptions involved
+    - Uncertainty statement
+
+    Args:
+        distance: Deck distance calculation
+        score: Recommendation score
+        can_build: Whether deck can be built now
+        within_budget: Whether deck is within wildcard budget
+        fragility: Optional fragility score from assumptions analysis
+
+    Returns:
+        Dict with reason, explanation, and uncertainty
+    """
+    reason = _generate_recommendation_reason(distance, can_build, within_budget)
+    explanation = create_recommendation_explanation(
+        score=score / 100.0,  # Normalize to 0-1
+        completion_pct=distance.completion_percentage * 100,
+        archetype=distance.deck.archetype or "unknown",
+        fragility=fragility,
+    )
+
+    return {
+        "reason": reason,
+        "summary": explanation.summary,
+        "assumptions_involved": explanation.assumptions_involved,
+        "uncertainty": explanation.uncertainty,
+        "confidence": explanation.confidence,
+    }
 
 
 def get_buildable_decks(
