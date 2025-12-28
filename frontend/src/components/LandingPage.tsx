@@ -23,7 +23,7 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
           className="text-3xl font-bold mb-4"
           style={{ color: 'var(--color-text-primary)' }}
         >
-          Understand Your Deck, Not Just Build It
+          Understand your deck, not just build it
         </h2>
         <p
           className="text-lg mb-8"
