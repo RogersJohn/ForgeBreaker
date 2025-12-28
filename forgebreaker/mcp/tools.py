@@ -974,6 +974,10 @@ async def export_to_arena_tool(
     """
     Export a deck to MTG Arena import format.
 
+    Uses the Arena Sanitizer to ensure all printings are Arena-valid.
+    If any card has an invalid printing that cannot be canonicalized,
+    the entire export fails with an explicit error message.
+
     Args:
         cards: Non-land cards {name: quantity}
         lands: Land cards {name: quantity}
@@ -981,8 +985,10 @@ async def export_to_arena_tool(
         deck_name: Name for the deck
 
     Returns:
-        Dict with arena_format export string
+        Dict with arena_format export string, or failure message
     """
+    from forgebreaker.services.arena_sanitizer import ArenaSanitizationError
+
     # Create a minimal BuiltDeck for export
     deck = BuiltDeck(
         name=deck_name,
@@ -994,7 +1000,21 @@ async def export_to_arena_tool(
         lands=lands,
     )
 
-    arena_export = export_deck_to_arena(deck, card_db)
+    try:
+        arena_export = export_deck_to_arena(deck, card_db)
+    except ArenaSanitizationError as e:
+        # Hard failure - do not return partial output
+        return {
+            "success": False,
+            "error": "arena_sanitization_failed",
+            "message": (
+                f"Deck export failed: '{e.card_name}' cannot be imported into MTG Arena. "
+                f"The printing from set '{e.invalid_set}' is not accepted by Arena. "
+                f"Reason: {e.reason}"
+            ),
+            "card_name": e.card_name,
+            "invalid_set": e.invalid_set,
+        }
 
     return {
         "success": True,

@@ -4,6 +4,13 @@ ForgeBreaker services.
 Business logic for deck building and collection management.
 """
 
+from forgebreaker.services.arena_sanitizer import (
+    ArenaSanitizationError,
+    SanitizedCard,
+    SanitizedDeck,
+    sanitize_deck_for_arena,
+    validate_arena_importability,
+)
 from forgebreaker.services.collection_search import (
     CardSearchResult,
     format_search_results,
@@ -44,4 +51,9 @@ __all__ = [
     "DeckAnalysis",
     "analyze_and_improve_deck",
     "format_deck_analysis",
+    "ArenaSanitizationError",
+    "SanitizedCard",
+    "SanitizedDeck",
+    "sanitize_deck_for_arena",
+    "validate_arena_importability",
 ]
