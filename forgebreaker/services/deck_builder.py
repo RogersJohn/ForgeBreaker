@@ -711,21 +711,29 @@ def format_built_deck(deck: BuiltDeck) -> str:
 
 
 def export_deck_to_arena(deck: BuiltDeck, card_db: dict[str, dict[str, Any]]) -> str:
-    """Export deck to Arena import format."""
-    lines = ["Deck"]
+    """
+    Export deck to Arena import format.
 
-    # Non-land cards (default to FDN set if unknown)
-    for card_name, qty in sorted(deck.cards.items()):
-        card_data = card_db.get(card_name, {})
-        set_code = card_data.get("set", "FDN").upper()
-        collector_num = card_data.get("collector_number", "1")
-        lines.append(f"{qty} {card_name} ({set_code}) {collector_num}")
+    Uses the Arena Sanitizer to ensure all printings are Arena-valid.
+    This guarantees the output can be copy/pasted into Arena without manual edits.
 
-    # Lands
-    for card_name, qty in sorted(deck.lands.items()):
-        card_data = card_db.get(card_name, {})
-        set_code = card_data.get("set", "FDN").upper()
-        collector_num = card_data.get("collector_number", "1")
-        lines.append(f"{qty} {card_name} ({set_code}) {collector_num}")
+    Args:
+        deck: The built deck to export
+        card_db: Card database with printing information
 
-    return "\n".join(lines)
+    Returns:
+        Arena-format string ready for import
+
+    Raises:
+        ArenaSanitizationError: If any card cannot be sanitized for Arena.
+            The entire export fails - no partial output.
+    """
+    from forgebreaker.services.arena_sanitizer import sanitize_deck_for_arena
+
+    # Combine cards and lands for sanitization
+    all_cards = {**deck.cards, **deck.lands}
+
+    # Sanitize all printings (raises ArenaSanitizationError if impossible)
+    sanitized = sanitize_deck_for_arena(all_cards, card_db)
+
+    return sanitized.to_arena_format()

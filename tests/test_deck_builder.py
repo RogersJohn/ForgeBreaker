@@ -39,6 +39,7 @@ def card_db() -> dict[str, dict[str, Any]]:
                 "At the beginning of your precombat main phase, "
                 "each opponent loses 1 life for each Shrine you control."
             ),
+            "games": ["arena", "paper", "mtgo"],
         },
         "Sanctum of Shattered Heights": {
             "type_line": "Legendary Enchantment — Shrine",
@@ -49,6 +50,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "oracle_text": (
                 "Sacrifice a Shrine: Deal damage equal to the number of Shrines you control."
             ),
+            "games": ["arena", "paper", "mtgo"],
         },
         "Go for the Throat": {
             "type_line": "Instant",
@@ -57,6 +59,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "collector_number": "105",
             "cmc": 2,
             "oracle_text": "Destroy target nonartifact creature.",
+            "games": ["arena", "paper", "mtgo"],
         },
         "Lightning Bolt": {
             "type_line": "Instant",
@@ -65,6 +68,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "collector_number": "42",
             "cmc": 1,
             "oracle_text": "Lightning Bolt deals 3 damage to any target.",
+            "games": ["arena", "paper", "mtgo"],
         },
         "Swamp": {
             "type_line": "Basic Land — Swamp",
@@ -73,6 +77,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "collector_number": "280",
             "cmc": 0,
             "oracle_text": "",
+            "games": ["arena", "paper", "mtgo"],
         },
         "Mountain": {
             "type_line": "Basic Land — Mountain",
@@ -81,6 +86,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "collector_number": "279",
             "cmc": 0,
             "oracle_text": "",
+            "games": ["arena", "paper", "mtgo"],
         },
         "Blood Crypt": {
             "type_line": "Land — Swamp Mountain",
@@ -91,6 +97,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "oracle_text": (
                 "({T}: Add {B} or {R}.) Blood Crypt enters tapped unless you pay 2 life."
             ),
+            "games": ["arena", "paper", "mtgo"],
         },
     }
 

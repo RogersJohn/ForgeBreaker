@@ -17,6 +17,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "set": "STA",
             "collector_number": "42",
             "cmc": 1,
+            "games": ["arena", "paper", "mtgo"],
         },
         "Sanctum of Stone Fangs": {
             "type_line": "Legendary Enchantment — Shrine",
@@ -24,6 +25,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "set": "M21",
             "collector_number": "120",
             "cmc": 2,
+            "games": ["arena", "paper", "mtgo"],
         },
         "Mountain": {
             "type_line": "Basic Land — Mountain",
@@ -31,6 +33,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "set": "FDN",
             "collector_number": "279",
             "cmc": 0,
+            "games": ["arena", "paper", "mtgo"],
         },
         "Swamp": {
             "type_line": "Basic Land — Swamp",
@@ -38,6 +41,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "set": "FDN",
             "collector_number": "280",
             "cmc": 0,
+            "games": ["arena", "paper", "mtgo"],
         },
     }
 
@@ -125,31 +129,38 @@ class TestExportToArenaTool:
 
         assert result["deck_name"] == "My Deck"
 
-    async def test_export_empty_deck(
+    async def test_export_empty_deck_rejected(
         self,
         card_db: dict[str, dict[str, Any]],
     ) -> None:
-        """Empty deck produces minimal export."""
+        """Empty deck is rejected by sanitizer.
+
+        The sanitizer enforces that decks must have at least one card.
+        Empty decks are invalid and rejected with an error.
+        """
         cards: dict[str, int] = {}
         lands: dict[str, int] = {}
 
         result = await export_to_arena_tool(cards, lands, card_db)
 
-        assert result["success"] is True
-        assert result["total_cards"] == 0
-        assert result["arena_format"] == "Deck"
+        # Empty deck is rejected - fail-closed behavior
+        assert result["success"] is False
+        assert result["error"] == "arena_sanitization_failed"
+        assert "at least" in result["message"].lower()
 
-    async def test_export_unknown_cards_use_defaults(self) -> None:
-        """Cards not in database use default set code."""
+    async def test_export_unknown_cards_fail_explicitly(self) -> None:
+        """Cards not in database fail with explicit error."""
         card_db: dict[str, dict[str, Any]] = {}
         cards = {"Unknown Card": 4}
         lands = {}
 
         result = await export_to_arena_tool(cards, lands, card_db)
 
-        assert result["success"] is True
-        # Should still produce output with default set
-        assert "Unknown Card" in result["arena_format"]
+        # With the Arena Sanitizer, unknown cards fail - we cannot
+        # guarantee they are Arena-importable without database info
+        assert result["success"] is False
+        assert result["error"] == "arena_sanitization_failed"
+        assert "Unknown Card" in result["message"]
 
     async def test_export_includes_all_cards(
         self,
