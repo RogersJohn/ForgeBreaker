@@ -2,11 +2,16 @@
 Card synergy finder.
 
 Identifies cards that work well together based on mechanics.
+
+IMPORTANT: All synergy suggestions MUST go through an AllowedCardSet.
+This enforces the invariant that suggestions only come from cards
+the player owns AND that are legal in the target format.
 """
 
 from dataclasses import dataclass
 from typing import Any
 
+from forgebreaker.models.allowed_cards import AllowedCardSet, build_allowed_set
 from forgebreaker.models.collection import Collection
 
 # Synergy patterns: (trigger_keyword, synergy_keywords)
@@ -47,15 +52,22 @@ def find_synergies(
     card_name: str,
     collection: Collection,
     card_db: dict[str, dict[str, Any]],
+    format_name: str,
+    format_legal_cards: set[str],
     max_results: int = 20,
 ) -> SynergyResult | None:
     """
     Find cards in collection that synergize with a given card.
 
+    IMPORTANT: Only cards that are BOTH owned AND format-legal are returned.
+    This is enforced via AllowedCardSet - a hard boundary that cannot be bypassed.
+
     Args:
         card_name: Card to find synergies for
         collection: User's collection
         card_db: Card database
+        format_name: Target format (e.g., "standard", "historic")
+        format_legal_cards: Set of cards legal in the target format
         max_results: Maximum synergistic cards to return
 
     Returns:
@@ -64,6 +76,13 @@ def find_synergies(
     card_data = card_db.get(card_name)
     if not card_data:
         return None
+
+    # Build the allowed card set - the ONLY valid universe for suggestions
+    allowed_set = build_allowed_set(
+        collection_cards=collection.cards,
+        format_legal_cards=format_legal_cards,
+        format_name=format_name,
+    )
 
     oracle = card_data.get("oracle_text", "").lower()
     type_line = card_data.get("type_line", "").lower()
@@ -90,10 +109,10 @@ def find_synergies(
             synergy_keywords = {"artifact"}
             synergy_type = "artifact"
 
-    # Find synergistic cards in collection
+    # Find synergistic cards - ONLY from allowed set (owned AND format-legal)
     synergistic: list[tuple[str, int, str]] = []
 
-    for owned_name, qty in collection.cards.items():
+    for owned_name, qty in allowed_set.cards.items():
         if owned_name == card_name:
             continue
 

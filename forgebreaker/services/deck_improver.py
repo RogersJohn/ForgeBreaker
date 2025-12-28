@@ -3,11 +3,20 @@ Deck improvement service.
 
 Analyzes an existing deck and suggests upgrades from the user's collection.
 Uses synergy detection and tribal awareness for smarter suggestions.
+
+IMPORTANT: All card suggestions MUST go through an AllowedCardSet.
+This enforces the invariant that suggestions only come from cards
+the player owns AND that are legal in the target format.
 """
 
 from dataclasses import dataclass, field
 from typing import Any
 
+from forgebreaker.models.allowed_cards import (
+    AllowedCardSet,
+    build_allowed_set,
+    validate_card_in_allowed_set,
+)
 from forgebreaker.models.collection import Collection
 from forgebreaker.parsers.arena_export import parse_arena_export
 
@@ -344,14 +353,20 @@ def _find_synergy_upgrade(
     card_name: str,
     card_quantity: int,
     card_data: dict[str, Any] | None,
-    collection: Collection,
+    allowed_set: AllowedCardSet,
     card_db: dict[str, dict[str, Any]],
     deck_cards: set[str],
     deck_colors: set[str],
     deck_themes: DeckThemes,
     deck_tribal: str | None,
 ) -> CardSuggestion | None:
-    """Find a synergy-based upgrade for a specific card."""
+    """
+    Find a synergy-based upgrade for a specific card.
+
+    IMPORTANT: Only cards in allowed_set can be suggested.
+    This enforces the hard boundary that prevents suggesting
+    cards the player doesn't own or that aren't format-legal.
+    """
     if card_data is None:
         return None
 
@@ -370,7 +385,8 @@ def _find_synergy_upgrade(
 
     best_upgrade: UpgradeCandidate | None = None
 
-    for owned_card, owned_qty in collection.cards.items():
+    # CRITICAL: Only iterate over allowed cards (owned AND format-legal)
+    for owned_card, owned_qty in allowed_set.cards.items():
         if owned_card in deck_cards:
             continue
         if owned_qty < card_quantity:
@@ -447,6 +463,14 @@ def _find_synergy_upgrade(
             )
 
     if best_upgrade:
+        # HARD BOUNDARY: Validate suggestion before returning
+        # This is a defensive check - should always pass if iteration was correct
+        validate_card_in_allowed_set(
+            best_upgrade.card_name,
+            allowed_set,
+            card_quantity,
+        )
+
         return CardSuggestion(
             remove_card=card_name,
             remove_quantity=card_quantity,
@@ -464,6 +488,8 @@ def analyze_and_improve_deck(
     deck_text: str,
     collection: Collection,
     card_db: dict[str, dict[str, Any]],
+    format_name: str,
+    format_legal_cards: set[str],
     max_suggestions: int = 5,
 ) -> DeckAnalysis:
     """
@@ -471,15 +497,26 @@ def analyze_and_improve_deck(
 
     Uses synergy detection and tribal awareness for smarter suggestions.
 
+    IMPORTANT: Only cards that are BOTH owned AND format-legal can be suggested.
+    This is enforced via AllowedCardSet - a hard boundary that cannot be bypassed.
+
     Args:
         deck_text: Arena-format deck list
         collection: User's card collection
         card_db: Scryfall card database
+        format_name: Target format (e.g., "standard", "historic")
+        format_legal_cards: Set of cards legal in the target format
         max_suggestions: Maximum number of suggestions to return
 
     Returns:
         DeckAnalysis with suggestions and advice
     """
+    # Build the allowed card set - the ONLY valid universe for suggestions
+    allowed_set = build_allowed_set(
+        collection_cards=collection.cards,
+        format_legal_cards=format_legal_cards,
+        format_name=format_name,
+    )
     cards = parse_arena_export(deck_text)
 
     if not cards:
@@ -544,7 +581,7 @@ def analyze_and_improve_deck(
             card_name,
             quantity,
             card_data,
-            collection,
+            allowed_set,  # HARD BOUNDARY: Only suggest from allowed cards
             card_db,
             deck_card_set,
             colors if colors else {"W", "U", "B", "R", "G"},

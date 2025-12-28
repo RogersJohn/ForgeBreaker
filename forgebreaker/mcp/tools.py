@@ -893,16 +893,21 @@ async def find_synergies_tool(
     user_id: str,
     card_name: str,
     card_db: dict[str, dict[str, Any]],
+    format_name: str = "standard",
     max_results: int = 20,
 ) -> dict[str, Any]:
     """
     Find cards that synergize with a specific card.
+
+    IMPORTANT: Only cards that are BOTH owned AND format-legal are returned.
+    This is a hard boundary that cannot be bypassed.
 
     Args:
         session: Database session
         user_id: User's ID
         card_name: Card to find synergies for
         card_db: Card database from Scryfall
+        format_name: Target format for legality checking (default: "standard")
         max_results: Maximum synergistic cards to return
 
     Returns:
@@ -918,7 +923,24 @@ async def find_synergies_tool(
 
     collection = collection_to_model(db_collection)
 
-    result = find_synergies(card_name, collection, card_db, max_results)
+    # Get format legality - REQUIRED for hard boundary enforcement
+    format_legality = _get_format_legality_safe()
+    format_legal_cards = format_legality.get(format_name.lower(), set())
+
+    if not format_legal_cards:
+        return {
+            "found": False,
+            "message": f"Unknown format '{format_name}'. Supported: standard, historic, explorer, pioneer, modern, legacy, vintage, brawl, timeless.",
+        }
+
+    result = find_synergies(
+        card_name,
+        collection,
+        card_db,
+        format_name,
+        format_legal_cards,
+        max_results,
+    )
 
     if result is None:
         return {
@@ -985,16 +1007,21 @@ async def improve_deck_tool(
     user_id: str,
     deck_text: str,
     card_db: dict[str, dict[str, Any]],
+    format_name: str = "standard",
     max_suggestions: int = 5,
 ) -> dict[str, Any]:
     """
     Analyze a deck and suggest improvements from user's collection.
+
+    IMPORTANT: Only cards that are BOTH owned AND format-legal can be suggested.
+    This is a hard boundary that cannot be bypassed.
 
     Args:
         session: Database session
         user_id: User's ID
         deck_text: Arena-format deck list
         card_db: Card database from Scryfall
+        format_name: Target format for legality checking (default: "standard")
         max_suggestions: Maximum suggestions to return
 
     Returns:
@@ -1010,10 +1037,22 @@ async def improve_deck_tool(
 
     collection = collection_to_model(db_collection)
 
+    # Get format legality - REQUIRED for hard boundary enforcement
+    format_legality = _get_format_legality_safe()
+    format_legal_cards = format_legality.get(format_name.lower(), set())
+
+    if not format_legal_cards:
+        return {
+            "success": False,
+            "message": f"Unknown format '{format_name}'. Supported: standard, historic, explorer, pioneer, modern, legacy, vintage, brawl, timeless.",
+        }
+
     analysis = analyze_and_improve_deck(
         deck_text=deck_text,
         collection=collection,
         card_db=card_db,
+        format_name=format_name,
+        format_legal_cards=format_legal_cards,
         max_suggestions=max_suggestions,
     )
 
