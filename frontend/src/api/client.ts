@@ -4,6 +4,9 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
+// Collection source type for demo/user distinction
+export type CollectionSource = 'DEMO' | 'USER'
+
 export interface DeckResponse {
   name: string
   archetype: string
@@ -26,6 +29,7 @@ export interface CollectionResponse {
   total_cards: number
   unique_cards: number
   cards?: Record<string, number>
+  collection_source: CollectionSource
 }
 
 export interface ImportResponse {
@@ -33,6 +37,7 @@ export interface ImportResponse {
   cards_imported: number
   total_cards: number
   cards: Record<string, number>
+  collection_source: CollectionSource
 }
 
 export interface CollectionStatsResponse {
@@ -42,6 +47,7 @@ export interface CollectionStatsResponse {
   by_rarity: Record<string, number>
   by_color: Record<string, number>
   by_type: Record<string, number>
+  collection_source: CollectionSource
 }
 
 export interface DistanceResponse {

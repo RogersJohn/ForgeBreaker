@@ -53,6 +53,12 @@ from forgebreaker.services.deck_improver import (
     analyze_and_improve_deck,
     format_deck_analysis,
 )
+from forgebreaker.services.demo_collection import (
+    DemoCollectionError,
+    demo_collection_available,
+    get_demo_cards,
+    get_demo_collection,
+)
 from forgebreaker.services.synergy_finder import (
     SynergyResult,
     find_synergies,
@@ -103,4 +109,9 @@ __all__ = [
     # Dict-based API (for internal use)
     "sanitize_deck_for_arena",
     "validate_arena_export",
+    # Demo collection
+    "DemoCollectionError",
+    "get_demo_collection",
+    "get_demo_cards",
+    "demo_collection_available",
 ]

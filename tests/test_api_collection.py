@@ -53,8 +53,15 @@ async def client(async_engine):
 
 
 class TestGetCollection:
-    async def test_get_empty_collection(self, client: AsyncClient) -> None:
-        """Returns empty collection for new user."""
+    async def test_get_empty_collection(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Returns empty collection for new user when demo not available."""
+        # Disable demo mode for this test to verify empty behavior
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.demo_collection_available", lambda: False
+        )
+
         response = await client.get("/collection/new-user")
 
         assert response.status_code == 200
@@ -62,6 +69,7 @@ class TestGetCollection:
         assert data["user_id"] == "new-user"
         assert data["cards"] == {}
         assert data["total_cards"] == 0
+        assert data["collection_source"] == "USER"
 
     async def test_get_existing_collection(self, client: AsyncClient) -> None:
         """Returns collection with cards after update."""
@@ -165,8 +173,15 @@ class TestUpdateCollection:
 
 
 class TestDeleteCollection:
-    async def test_delete_existing_collection(self, client: AsyncClient) -> None:
+    async def test_delete_existing_collection(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Can delete an existing collection."""
+        # Disable demo mode to verify empty collection after delete
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.demo_collection_available", lambda: False
+        )
+
         await client.put(
             "/collection/user-123",
             json={"cards": {"Lightning Bolt": 4}},
@@ -177,7 +192,7 @@ class TestDeleteCollection:
         assert response.status_code == 200
         assert response.json()["deleted"] is True
 
-        # Verify it's gone
+        # Verify it's gone (empty without demo mode)
         get_response = await client.get("/collection/user-123")
         assert get_response.json()["cards"] == {}
 
@@ -235,8 +250,15 @@ class TestImportCollection:
 
 
 class TestCollectionStats:
-    async def test_stats_empty_collection(self, client: AsyncClient) -> None:
-        """Returns empty stats for nonexistent collection."""
+    async def test_stats_empty_collection(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Returns empty stats for nonexistent collection when demo not available."""
+        # Disable demo mode to verify empty stats behavior
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.demo_collection_available", lambda: False
+        )
+
         response = await client.get("/collection/new-user/stats")
 
         assert response.status_code == 200
@@ -244,6 +266,7 @@ class TestCollectionStats:
         assert data["user_id"] == "new-user"
         assert data["total_cards"] == 0
         assert data["unique_cards"] == 0
+        assert data["collection_source"] == "USER"
 
     async def test_stats_basic_counts(self, client: AsyncClient) -> None:
         """Returns basic counts even without card database."""
@@ -396,3 +419,138 @@ class TestCollectionStats:
         data = response.json()
         assert data["by_rarity"]["other"] == 1
         assert data["by_rarity"]["common"] == 0
+
+
+class TestDemoModeBoundary:
+    """
+    Tests for demo mode boundary protection.
+
+    These tests verify that:
+    - Users with no collection see demo data with collection_source="DEMO"
+    - Users who import get collection_source="USER"
+    - Demo data is fully replaced when user imports their own
+    """
+
+    async def test_empty_user_gets_demo_collection(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """New user gets demo collection with DEMO source."""
+        # Mock demo collection to be available
+        demo_cards = {"Demo Card A": 2, "Demo Card B": 1}
+
+        def mock_demo_available() -> bool:
+            return True
+
+        def mock_get_demo():
+            from forgebreaker.models.collection import Collection
+
+            return Collection(cards=demo_cards.copy())
+
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.demo_collection_available", mock_demo_available
+        )
+        monkeypatch.setattr("forgebreaker.api.collection.get_demo_collection", mock_get_demo)
+
+        response = await client.get("/collection/new-user")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["collection_source"] == "DEMO"
+        assert data["cards"]["Demo Card A"] == 2
+        assert data["cards"]["Demo Card B"] == 1
+        assert data["total_cards"] == 3
+
+    async def test_import_switches_to_user_source(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Importing collection switches source to USER."""
+        # Mock demo collection
+        demo_cards = {"Demo Card": 4}
+
+        def mock_demo_available() -> bool:
+            return True
+
+        def mock_get_demo():
+            from forgebreaker.models.collection import Collection
+
+            return Collection(cards=demo_cards.copy())
+
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.demo_collection_available", mock_demo_available
+        )
+        monkeypatch.setattr("forgebreaker.api.collection.get_demo_collection", mock_get_demo)
+
+        # First verify user gets demo data
+        response = await client.get("/collection/test-user")
+        assert response.json()["collection_source"] == "DEMO"
+
+        # Now import user's own collection
+        import_response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt\n4 Mountain"},
+        )
+
+        assert import_response.status_code == 200
+        import_data = import_response.json()
+        assert import_data["collection_source"] == "USER"
+
+        # Verify subsequent GET also returns USER source
+        get_response = await client.get("/collection/test-user")
+        get_data = get_response.json()
+        assert get_data["collection_source"] == "USER"
+        assert "Demo Card" not in get_data["cards"]
+        assert get_data["cards"]["Lightning Bolt"] == 4
+
+    async def test_user_collection_returns_user_source(self, client: AsyncClient) -> None:
+        """User with existing collection gets USER source."""
+        # Create user collection directly
+        await client.put(
+            "/collection/user-with-data",
+            json={"cards": {"User Card": 3}},
+        )
+
+        response = await client.get("/collection/user-with-data")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["collection_source"] == "USER"
+        assert data["cards"]["User Card"] == 3
+
+    async def test_demo_stats_returns_demo_source(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stats for demo collection returns DEMO source."""
+        demo_cards = {"Demo Card": 2}
+
+        def mock_demo_available() -> bool:
+            return True
+
+        def mock_get_demo():
+            from forgebreaker.models.collection import Collection
+
+            return Collection(cards=demo_cards.copy())
+
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.demo_collection_available", mock_demo_available
+        )
+        monkeypatch.setattr("forgebreaker.api.collection.get_demo_collection", mock_get_demo)
+
+        response = await client.get("/collection/new-user/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["collection_source"] == "DEMO"
+        assert data["total_cards"] == 2
+
+    async def test_user_stats_returns_user_source(self, client: AsyncClient) -> None:
+        """Stats for user collection returns USER source."""
+        await client.put(
+            "/collection/user-123",
+            json={"cards": {"User Card": 5}},
+        )
+
+        response = await client.get("/collection/user-123/stats")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["collection_source"] == "USER"

@@ -24,6 +24,13 @@ from forgebreaker.services.card_database import (
     get_card_rarity,
     get_card_type,
 )
+from forgebreaker.services.demo_collection import (
+    demo_collection_available,
+    get_demo_collection,
+)
+
+# Collection source type for demo/user distinction
+CollectionSource = Literal["DEMO", "USER"]
 
 router = APIRouter(prefix="/collection", tags=["collection"])
 
@@ -35,6 +42,10 @@ class CollectionResponse(BaseModel):
     cards: dict[str, int] = Field(default_factory=dict)
     total_cards: int = 0
     unique_cards: int = 0
+    collection_source: CollectionSource = Field(
+        default="USER",
+        description="Source of collection data: DEMO (sample data) or USER (user-uploaded)",
+    )
 
 
 class CollectionUpdateRequest(BaseModel):
@@ -72,6 +83,10 @@ class ImportResponse(BaseModel):
     cards_imported: int
     total_cards: int
     cards: dict[str, int] = Field(default_factory=dict)
+    collection_source: CollectionSource = Field(
+        default="USER",
+        description="Always USER after import (user data replaces demo)",
+    )
 
 
 class DeleteResponse(BaseModel):
@@ -97,6 +112,10 @@ class CollectionStatsResponse(BaseModel):
     by_type: dict[str, int] = Field(
         default_factory=dict,
         description="Card counts by primary type (Creature, Instant, etc.)",
+    )
+    collection_source: CollectionSource = Field(
+        default="USER",
+        description="Source of collection data: DEMO (sample data) or USER (user-uploaded)",
     )
 
 
@@ -135,12 +154,30 @@ async def get_user_collection(
     Get a user's card collection.
 
     Returns the collection with all cards and quantities.
-    Returns empty collection if user has no collection.
+    If user has no collection, returns demo collection (sample data).
+    The collection_source field indicates DEMO or USER origin.
     """
     db_collection = await get_collection(session, user_id)
 
     if db_collection is None:
-        return CollectionResponse(user_id=user_id, cards={}, total_cards=0, unique_cards=0)
+        # No user collection - return demo data if available
+        if demo_collection_available():
+            demo = get_demo_collection()
+            return CollectionResponse(
+                user_id=user_id,
+                cards=demo.cards,
+                total_cards=demo.total_cards(),
+                unique_cards=demo.unique_cards(),
+                collection_source="DEMO",
+            )
+        # Demo not available - return empty
+        return CollectionResponse(
+            user_id=user_id,
+            cards={},
+            total_cards=0,
+            unique_cards=0,
+            collection_source="USER",
+        )
 
     model = collection_to_model(db_collection)
 
@@ -149,6 +186,7 @@ async def get_user_collection(
         cards=model.cards,
         total_cards=model.total_cards(),
         unique_cards=model.unique_cards(),
+        collection_source="USER",
     )
 
 
@@ -191,6 +229,7 @@ async def update_user_collection(
         cards=model.cards,
         total_cards=model.total_cards(),
         unique_cards=model.unique_cards(),
+        collection_source="USER",
     )
 
 
@@ -257,6 +296,7 @@ async def import_user_collection(
         cards_imported=len(parsed_cards),
         total_cards=model.total_cards(),
         cards=model.cards,
+        collection_source="USER",
     )
 
 
@@ -271,13 +311,22 @@ async def get_collection_stats(
     Returns breakdowns by rarity, color, and card type when the card database
     is available. Falls back to basic counts (total and unique cards) if the
     card database is unavailable.
+
+    If user has no collection, returns stats for demo collection.
     """
     db_collection = await get_collection(session, user_id)
 
+    # Determine collection source and get collection data
     if db_collection is None:
-        return CollectionStatsResponse(user_id=user_id)
-
-    collection = collection_to_model(db_collection)
+        # No user collection - use demo data if available
+        if demo_collection_available():
+            collection = get_demo_collection()
+            collection_source: CollectionSource = "DEMO"
+        else:
+            return CollectionStatsResponse(user_id=user_id, collection_source="USER")
+    else:
+        collection = collection_to_model(db_collection)
+        collection_source = "USER"
 
     # Try to load card database for detailed stats
     try:
@@ -288,6 +337,7 @@ async def get_collection_stats(
             user_id=user_id,
             total_cards=collection.total_cards(),
             unique_cards=collection.unique_cards(),
+            collection_source=collection_source,
         )
 
     # Calculate breakdowns
@@ -343,4 +393,5 @@ async def get_collection_stats(
         by_rarity=by_rarity,
         by_color=by_color,
         by_type=by_type,
+        collection_source=collection_source,
     )

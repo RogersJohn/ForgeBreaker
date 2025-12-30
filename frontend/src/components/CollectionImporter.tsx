@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
 import { useCollection, useCollectionStats, useImportCollection } from '../hooks/useCollection'
 import { CollectionStats } from './CollectionStats'
+import { DemoModeBanner } from './DemoModeBanner'
 
 interface CollectionImporterProps {
   userId: string
@@ -80,8 +81,14 @@ export function CollectionImporter({ userId }: CollectionImporterProps) {
     }
   }
 
+  // Determine if we're in demo mode
+  const isDemo = collection?.collection_source === 'DEMO'
+
   return (
     <div className="h-full flex flex-col gap-6 overflow-y-auto">
+      {/* Demo Mode Banner - visible without scrolling */}
+      <DemoModeBanner isDemo={isDemo} />
+
       {/* Stats Section */}
       {stats && stats.total_cards > 0 && (
         <CollectionStats stats={stats} />
