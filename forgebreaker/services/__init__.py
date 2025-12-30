@@ -35,6 +35,14 @@ from forgebreaker.services.arena_sanitizer import (
     sanitize_deck_for_arena,
     validate_arena_export,
 )
+from forgebreaker.services.card_name_guard import (
+    CardNameLeakageError,
+    GuardResult,
+    create_refusal_response,
+    extract_potential_card_names,
+    guard_output,
+    validate_output_card_names,
+)
 from forgebreaker.services.collection_search import (
     CardSearchResult,
     format_search_results,
@@ -114,4 +122,11 @@ __all__ = [
     "get_demo_collection",
     "get_demo_cards",
     "demo_collection_available",
+    # Card name guard - output barrier
+    "CardNameLeakageError",
+    "GuardResult",
+    "create_refusal_response",
+    "extract_potential_card_names",
+    "guard_output",
+    "validate_output_card_names",
 ]
