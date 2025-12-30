@@ -114,6 +114,22 @@ _NON_CARD_ENDINGS = frozenset(
     ]
 )
 
+# MTG terminology that looks like card names but isn't
+# These are exact matches (case-insensitive)
+_NON_CARD_EXACT = frozenset(
+    [
+        "summon",  # Old type line word: "Summon - Dragon"
+        "instant",
+        "sorcery",
+        "enchantment",
+        "artifact",
+        "creature",
+        "planeswalker",
+        "tribal",
+        "legendary",
+    ]
+)
+
 
 def canonical_card_key(name: str) -> str:
     """
@@ -150,8 +166,13 @@ def _is_likely_card_name(name: str) -> bool:
     if not name[0].isupper():
         return False
 
-    # Check for non-card endings
     name_lower = name.lower()
+
+    # Check for exact non-card terms (MTG terminology)
+    if name_lower in _NON_CARD_EXACT:
+        return False
+
+    # Check for non-card endings
     return all(not name_lower.endswith(ending) for ending in _NON_CARD_ENDINGS)
 
 
