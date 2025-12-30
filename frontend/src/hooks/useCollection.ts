@@ -34,11 +34,13 @@ export function useImportCollection(userId: string) {
       apiClient.importCollection(userId, text, format, merge),
     onSuccess: (data: ImportResponse) => {
       // Update cached collection with new data
+      // After import, always USER (user's own data replaces demo)
       const collection: CollectionResponse = {
         user_id: data.user_id,
         total_cards: data.total_cards,
         unique_cards: data.cards_imported,
         cards: data.cards,
+        collection_source: 'USER',
       }
       queryClient.setQueryData(['collection', userId], collection)
       // Invalidate stats so they refresh with new data
