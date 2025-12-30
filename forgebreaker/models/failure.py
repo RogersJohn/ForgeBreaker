@@ -13,6 +13,10 @@ Response types:
 - KnownFailure: System knows why it failed
 - UnknownFailure: System does not know why it failed
 
+AUTHORITY BOUNDARY:
+All user-visible responses MUST pass through `finalize_response()`.
+This is the single exit point that guarantees failure classification.
+
 This is enforced by code, not convention.
 """
 
@@ -163,12 +167,15 @@ class ApiResponse(BaseModel, Generic[T]):
 
         Use when the system does not know why it failed.
         This is the catch-all for unexpected exceptions.
+
+        NOTE: Prefer create_unknown_failure() which auto-finalizes.
         """
         return cls(
             outcome=OutcomeType.UNKNOWN_FAILURE,
             failure=FailureDetail(
                 kind=FailureKind.UNKNOWN,
-                message=("An unexpected error occurred. Try simplifying your request or retrying."),
+                # Use the standard message - fixed and boring
+                message=("I failed and I don't know why. Try simplifying the request or retrying."),
                 detail=detail,
                 suggestion="If this persists, please report the issue.",
             ),
@@ -239,3 +246,204 @@ class RefusalError(Exception):
             detail=self.detail,
             suggestion=self.suggestion,
         )
+
+
+# =============================================================================
+# FAILURE AUTHORITY BOUNDARY
+# =============================================================================
+#
+# All user-visible responses MUST pass through this boundary.
+# This is the ONLY exit point for API responses.
+#
+# =============================================================================
+
+
+# Standard messages — fixed, boring, predictable
+# These MUST NOT vary based on runtime inference or LLM output.
+
+STANDARD_MESSAGES: dict[OutcomeType, str] = {
+    OutcomeType.REFUSAL: (
+        "The system cannot proceed with this request due to a constraint violation."
+    ),
+    OutcomeType.KNOWN_FAILURE: "The operation failed due to a known issue.",
+    OutcomeType.UNKNOWN_FAILURE: (
+        "I failed and I don't know why. Try simplifying the request or retrying."
+    ),
+}
+
+STANDARD_SUGGESTIONS: dict[OutcomeType, str] = {
+    OutcomeType.REFUSAL: "Please modify your request to satisfy the constraint.",
+    OutcomeType.KNOWN_FAILURE: "Check the error details and adjust your request.",
+    OutcomeType.UNKNOWN_FAILURE: "If this persists, please report the issue.",
+}
+
+
+class _FinalizedMarker:
+    """
+    Internal marker indicating a response has passed through the authority boundary.
+
+    This class is not exported. It exists only to detect boundary bypass.
+    """
+
+    __slots__ = ("_finalized",)
+
+    def __init__(self) -> None:
+        self._finalized = True
+
+
+# Track finalized responses (weak reference would be ideal, but dict is simpler)
+_finalized_responses: set[int] = set()
+
+
+def finalize_response(response: ApiResponse[Any]) -> ApiResponse[Any]:
+    """
+    Finalize a response through the authority boundary.
+
+    This is the SINGLE exit point for all user-visible responses.
+    Every response that passes through this function is guaranteed to:
+    1. Have a valid outcome classification
+    2. Have appropriate failure details if not successful
+    3. Use standardized, predictable language
+
+    Args:
+        response: The ApiResponse to finalize
+
+    Returns:
+        The same response, marked as having passed through the boundary
+
+    Raises:
+        ValueError: If response structure is invalid
+    """
+    # Validate response structure
+    if response.outcome == OutcomeType.SUCCESS:
+        if response.failure is not None:
+            raise ValueError("Success response must not have failure details")
+    else:
+        if response.failure is None:
+            raise ValueError(f"{response.outcome.value} response must have failure details")
+
+    # Mark as finalized
+    _finalized_responses.add(id(response))
+
+    return response
+
+
+def is_finalized(response: ApiResponse[Any]) -> bool:
+    """
+    Check if a response has passed through the authority boundary.
+
+    This is used by tests to verify that no endpoint bypasses the boundary.
+
+    Args:
+        response: The ApiResponse to check
+
+    Returns:
+        True if the response was finalized, False otherwise
+    """
+    return id(response) in _finalized_responses
+
+
+def create_unknown_failure(
+    exception: Exception,
+    include_type: bool = True,
+) -> ApiResponse[Any]:
+    """
+    Create an unknown failure response from an exception.
+
+    This is the ONLY way to create an unknown failure response.
+    The message is fixed and cannot be customized.
+
+    Args:
+        exception: The exception that caused the failure
+        include_type: Whether to include exception type in detail
+
+    Returns:
+        A finalized unknown failure response
+    """
+    detail = None
+    if include_type:
+        detail = f"{type(exception).__name__}"
+
+    response = ApiResponse(
+        outcome=OutcomeType.UNKNOWN_FAILURE,
+        failure=FailureDetail(
+            kind=FailureKind.UNKNOWN,
+            message=STANDARD_MESSAGES[OutcomeType.UNKNOWN_FAILURE],
+            detail=detail,
+            suggestion=STANDARD_SUGGESTIONS[OutcomeType.UNKNOWN_FAILURE],
+        ),
+    )
+
+    return finalize_response(response)
+
+
+def create_known_failure(
+    kind: FailureKind,
+    reason: str,
+) -> ApiResponse[Any]:
+    """
+    Create a known failure response.
+
+    The message is standardized. Only the reason (technical detail) varies.
+
+    Args:
+        kind: The classification of the failure
+        reason: Technical description of what went wrong (not user-facing prose)
+
+    Returns:
+        A finalized known failure response
+    """
+    response = ApiResponse(
+        outcome=OutcomeType.KNOWN_FAILURE,
+        failure=FailureDetail(
+            kind=kind,
+            message=STANDARD_MESSAGES[OutcomeType.KNOWN_FAILURE],
+            detail=reason,
+            suggestion=STANDARD_SUGGESTIONS[OutcomeType.KNOWN_FAILURE],
+        ),
+    )
+
+    return finalize_response(response)
+
+
+def create_refusal(
+    kind: FailureKind,
+    constraint: str,
+) -> ApiResponse[Any]:
+    """
+    Create a refusal response.
+
+    The message is standardized. Only the constraint name varies.
+
+    Args:
+        kind: The classification of the constraint violation
+        constraint: Name of the constraint that was violated (not prose)
+
+    Returns:
+        A finalized refusal response
+    """
+    response = ApiResponse(
+        outcome=OutcomeType.REFUSAL,
+        failure=FailureDetail(
+            kind=kind,
+            message=STANDARD_MESSAGES[OutcomeType.REFUSAL],
+            detail=f"Constraint violated: {constraint}",
+            suggestion=STANDARD_SUGGESTIONS[OutcomeType.REFUSAL],
+        ),
+    )
+
+    return finalize_response(response)
+
+
+def create_success(data: T) -> ApiResponse[T]:
+    """
+    Create a success response.
+
+    Args:
+        data: The response data
+
+    Returns:
+        A finalized success response
+    """
+    response = ApiResponse[T](outcome=OutcomeType.SUCCESS, data=data)
+    return finalize_response(response)

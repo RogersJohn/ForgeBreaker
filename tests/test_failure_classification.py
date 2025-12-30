@@ -70,8 +70,8 @@ class TestFailureEnvelope:
         assert response.data is None
         assert response.failure is not None
         assert response.failure.kind == FailureKind.UNKNOWN
-        # Must explicitly say it doesn't know why
-        assert "unexpected" in response.failure.message.lower()
+        # Must explicitly say it doesn't know why (standard message)
+        assert "don't know why" in response.failure.message.lower()
         assert "retry" in response.failure.message.lower()
 
     def test_unknown_failure_includes_suggestion(self) -> None:
@@ -198,7 +198,8 @@ class TestExceptionHandlers:
         if response.status_code == 500:
             assert data.get("outcome") == "unknown_failure"
             assert data.get("failure") is not None
-            assert "unexpected" in data["failure"].get("message", "").lower()
+            # Standard message says "I failed and I don't know why"
+            assert "don't know why" in data["failure"].get("message", "").lower()
 
 
 class TestInvariantViolationHandling:
