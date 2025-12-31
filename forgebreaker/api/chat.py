@@ -420,15 +420,22 @@ async def chat(
 
             # If a terminal outcome occurred, make final call WITHOUT tools
             # This forces Claude to produce a final response, no retries
-            current_tools = None if terminal_outcome_occurred else tools
-
-            response = client.messages.create(
-                model="claude-sonnet-4-20250514",
-                max_tokens=2048,
-                system=SYSTEM_PROMPT,
-                tools=cast(Any, current_tools),
-                messages=messages,
-            )
+            if terminal_outcome_occurred:
+                # Omit tools parameter entirely - SDK doesn't accept None
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2048,
+                    system=SYSTEM_PROMPT,
+                    messages=messages,
+                )
+            else:
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=2048,
+                    system=SYSTEM_PROMPT,
+                    tools=tools,
+                    messages=messages,
+                )
 
             # BUDGET RECORD: After each LLM call
             input_tokens = response.usage.input_tokens if response.usage else 0
