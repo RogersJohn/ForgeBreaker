@@ -426,7 +426,7 @@ async def chat(
                 model="claude-sonnet-4-20250514",
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,
-                tools=current_tools,
+                tools=cast(Any, current_tools),
                 messages=messages,
             )
 
