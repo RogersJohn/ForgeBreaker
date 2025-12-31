@@ -225,24 +225,8 @@ class TestImportCollection:
         assert response.status_code == 400
         assert "empty" in response.json()["detail"].lower()
 
-    async def test_import_merge_mode(self, client: AsyncClient) -> None:
-        """Merge mode keeps max quantity from both sources."""
-        # Create initial collection
-        await client.put(
-            "/collection/user-123",
-            json={"cards": {"Lightning Bolt": 4, "Mountain": 10}},
-        )
-
-        # Import with merge (Mountain 20 > 10, but Lightning Bolt 2 < 4)
-        response = await client.post(
-            "/collection/user-123/import",
-            json={"text": "2 Lightning Bolt\n20 Mountain", "merge": True},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["cards"]["Lightning Bolt"] == 4  # Kept existing (4 > 2)
-        assert data["cards"]["Mountain"] == 20  # Used import (20 > 10)
+    # NOTE: Merge mode was removed in favor of explicit import_mode semantics.
+    # Tests for import_mode are in test_collection_sanitizer.py::TestExplicitImportMode
 
 
 class TestCollectionStats:

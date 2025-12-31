@@ -54,6 +54,11 @@ from forgebreaker.services.clarification import (
     resolve_intent_with_policy,
     should_ask_clarification,
 )
+from forgebreaker.services.collection_sanitizer import (
+    SanitizationResult,
+    sanitize_collection,
+    try_sanitize_collection,
+)
 from forgebreaker.services.collection_search import (
     CardSearchResult,
     format_search_results,
@@ -133,6 +138,10 @@ __all__ = [
     "get_demo_collection",
     "get_demo_cards",
     "demo_collection_available",
+    # Collection sanitization (import-time)
+    "SanitizationResult",
+    "sanitize_collection",
+    "try_sanitize_collection",
     # Card name guard - output barrier
     "CardNameLeakageError",
     "GuardResult",

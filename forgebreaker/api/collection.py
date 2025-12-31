@@ -24,6 +24,7 @@ from forgebreaker.services.card_database import (
     get_card_rarity,
     get_card_type,
 )
+from forgebreaker.services.collection_sanitizer import try_sanitize_collection
 from forgebreaker.services.demo_collection import (
     demo_collection_available,
     get_demo_collection,
@@ -70,9 +71,23 @@ class CollectionImportRequest(BaseModel):
         default="auto",
         description="Format hint: auto-detect, simple (4 Card), csv, or arena",
     )
-    merge: bool = Field(
-        default=False,
-        description="If true, merge with existing collection (keep max qty)",
+    import_mode: Literal["new", "replace"] = Field(
+        default="new",
+        description="Import mode: 'new' for first import (fails if collection exists), "
+        "'replace' to explicitly replace existing collection.",
+    )
+
+
+class SanitizationInfo(BaseModel):
+    """Information about collection sanitization during import."""
+
+    cards_removed: int = Field(
+        ...,
+        description="Number of unique cards removed during sanitization",
+    )
+    message: str = Field(
+        ...,
+        description="User-friendly message about sanitization",
     )
 
 
@@ -87,12 +102,25 @@ class ImportResponse(BaseModel):
         default="USER",
         description="Always USER after import (user data replaces demo)",
     )
+    replaced_existing: bool = Field(
+        default=False,
+        description="True if an existing collection was replaced",
+    )
+    sanitization: SanitizationInfo | None = Field(
+        default=None,
+        description="Sanitization info if cards were removed (non-blocking, informational)",
+    )
 
 
 class DeleteResponse(BaseModel):
     """Response model for delete operations."""
 
+    user_id: str
     deleted: bool
+    message: str = Field(
+        default="",
+        description="User-friendly message about the deletion",
+    )
 
 
 class CollectionStatsResponse(BaseModel):
@@ -241,10 +269,21 @@ async def delete_user_collection(
     """
     Delete a user's card collection.
 
-    Returns whether a collection was actually deleted.
+    This is an explicit, irreversible operation that:
+    - Removes all cards from the user's collection
+    - Clears associated metadata
+    - Leaves the user with no collection
+
+    After deletion, deck-building will fail until a new collection is imported.
     """
     deleted = await delete_collection(session, user_id)
-    return DeleteResponse(deleted=deleted)
+
+    if deleted:
+        message = "Your collection has been deleted. You can import a new collection at any time."
+    else:
+        message = "No collection found to delete."
+
+    return DeleteResponse(user_id=user_id, deleted=deleted, message=message)
 
 
 @router.post("/{user_id}/import", response_model=ImportResponse)
@@ -261,8 +300,11 @@ async def import_user_collection(
     - CSV: "Card Name",Quantity,Set (MTGGoldfish/DeckStats style)
     - Arena: "4 Lightning Bolt (LEB) 163"
 
-    If merge=true, keeps the maximum quantity for each card
-    between existing and imported collections.
+    Import modes (explicit, required):
+    - import_mode="new": First import. Fails if collection already exists.
+    - import_mode="replace": Explicitly replaces existing collection.
+
+    INVARIANT: No silent data loss. Overwrite requires explicit replace mode.
     """
     if not request.text or not request.text.strip():
         raise HTTPException(
@@ -279,24 +321,68 @@ async def import_user_collection(
             detail="No valid cards found in import text",
         )
 
-    # If merge mode, combine with existing collection
-    if request.merge:
-        existing = await get_collection(session, user_id)
-        if existing:
-            existing_model = collection_to_model(existing)
-            for name, qty in existing_model.cards.items():
-                parsed_cards[name] = max(parsed_cards.get(name, 0), qty)
+    # Check for existing collection
+    existing = await get_collection(session, user_id)
+    had_existing_collection = existing is not None
 
-    # Save the collection
-    db_collection = await update_collection_cards(session, user_id, parsed_cards)
+    # INVARIANT: No silent data loss
+    # If collection exists and mode is not "replace", fail explicitly
+    if had_existing_collection and request.import_mode != "replace":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A collection already exists. "
+            "To replace it, explicitly set import_mode='replace'.",
+        )
+
+    # If replacing, delete existing collection first
+    if had_existing_collection and request.import_mode == "replace":
+        await delete_collection(session, user_id)
+
+    # Sanitize collection: remove cards not in card database
+    # This happens ONCE at import time, not at request time
+    # INVARIANT: Sanitization message is ephemeral - returned here only, never persisted
+    sanitization_info: SanitizationInfo | None = None
+    sanitization_result = try_sanitize_collection(parsed_cards)
+
+    if sanitization_result is not None:
+        # Card database available - use sanitized cards
+        cards_to_save = sanitization_result.sanitized_cards
+
+        # Build ephemeral user message if cards were removed
+        # This message exists ONLY in this response, never stored
+        if sanitization_result.had_removals:
+            sanitization_info = SanitizationInfo(
+                cards_removed=sanitization_result.removed_unique_count,
+                message=(
+                    "We cleaned up your collection by removing cards that aren't "
+                    "supported by the current card database. You can re-import "
+                    "your collection at any time if you update it."
+                ),
+            )
+    else:
+        # Card database unavailable - save as-is (request-time guard is safety net)
+        cards_to_save = parsed_cards
+
+    # Reject if all cards were removed
+    if not cards_to_save:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid cards found after sanitization. "
+            "All imported cards are not recognized by the card database.",
+        )
+
+    # Save the sanitized collection
+    db_collection = await update_collection_cards(session, user_id, cards_to_save)
     model = collection_to_model(db_collection)
 
     return ImportResponse(
         user_id=user_id,
-        cards_imported=len(parsed_cards),
+        cards_imported=len(cards_to_save),
         total_cards=model.total_cards(),
         cards=model.cards,
         collection_source="USER",
+        replaced_existing=had_existing_collection and request.import_mode == "replace",
+        sanitization=sanitization_info,
     )
 
 
