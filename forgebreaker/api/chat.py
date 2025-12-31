@@ -66,6 +66,53 @@ class ToolProcessingResult:
     error_message: str | None = None
 
 
+@dataclass
+class RequestContext:
+    """Request-scoped context for tracking terminal state.
+
+    INVARIANT: Once is_finalized is True, NO LLM calls may be made.
+    This is enforced by guard_llm_call() which must be called before
+    every client.messages.create() invocation.
+    """
+
+    is_finalized: bool = False
+    terminal_reason: TerminalReason = TerminalReason.NONE
+    terminal_message: str | None = None
+    llm_call_count: int = 0
+
+    def finalize(self, reason: TerminalReason, message: str) -> None:
+        """Mark request as finalized. No further LLM calls allowed."""
+        if self.is_finalized:
+            return  # Already finalized
+        self.is_finalized = True
+        self.terminal_reason = reason
+        self.terminal_message = message
+        logger.warning(
+            "request_finalized",
+            extra={
+                "reason": reason.value,
+                "terminal_msg": message,
+                "llm_calls_made": self.llm_call_count,
+            },
+        )
+
+    def guard_llm_call(self) -> None:
+        """Guard that MUST be called before every LLM invocation.
+
+        Raises RuntimeError if request is finalized.
+        This makes it structurally impossible to call LLM after terminal outcome.
+        """
+        if self.is_finalized:
+            raise RuntimeError(
+                f"INVARIANT VIOLATION: LLM call attempted after terminal outcome. "
+                f"Reason: {self.terminal_reason.value}, Message: {self.terminal_message}"
+            )
+
+    def record_llm_call(self) -> None:
+        """Record that an LLM call was made."""
+        self.llm_call_count += 1
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -217,6 +264,38 @@ class ChatResponse(BaseModel):
 
     message: ChatMessage
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def _create_terminal_response(
+    ctx: RequestContext,
+    tool_calls_made: list[dict[str, Any]],
+) -> ChatResponse:
+    """Create a response for terminal outcomes without making an LLM call.
+
+    This is used when we hit a terminal state and must return immediately.
+    The response explains the failure to the user.
+    """
+    # Build user-friendly error message based on terminal reason
+    reason = ctx.terminal_reason
+    message = ctx.terminal_message or "An error occurred"
+
+    if reason == TerminalReason.KNOWN_FAILURE:
+        content = f"I encountered an issue: {message}"
+    elif reason == TerminalReason.REFUSAL:
+        content = f"I cannot complete this request: {message}"
+    elif reason == TerminalReason.TOOL_ERROR:
+        content = f"A technical error occurred: {message}"
+    elif reason == TerminalReason.TOOL_RETURNED_ERROR:
+        content = f"I encountered a problem: {message}"
+    elif reason == TerminalReason.BUDGET_EXHAUSTED:
+        content = f"Request limit reached: {message}"
+    else:
+        content = f"Request could not be completed: {message}"
+
+    return ChatResponse(
+        message=ChatMessage(role="assistant", content=content),
+        tool_calls=tool_calls_made,
+    )
 
 
 def _get_anthropic_tools() -> list[ToolParam]:
@@ -382,10 +461,11 @@ async def chat(
     - Max tokens: MAX_TOKENS_PER_REQUEST (hard cap)
     - Exceedance is terminal — no retries, no fallback
 
-    Terminal outcome enforcement:
-    - Tool errors are TERMINAL — no retries, no additional LLM calls
-    - KnownFailure/RefusalError are TERMINAL — no retries
-    - After terminal outcome, return immediately with error message
+    Terminal outcome enforcement (CRITICAL INVARIANT):
+    - Tool errors are TERMINAL — return immediately, NO further LLM calls
+    - KnownFailure/RefusalError are TERMINAL — return immediately
+    - RequestContext.is_finalized blocks ALL LLM calls after terminal
+    - guard_llm_call() enforces this before every client.messages.create()
     """
     if not settings.anthropic_api_key:
         raise HTTPException(
@@ -409,8 +489,9 @@ async def chat(
         max_tokens=MAX_TOKENS_PER_REQUEST,
     )
 
-    # Track if we've had a terminal outcome (tools disabled after this)
-    terminal_outcome_occurred = False
+    # Request-scoped context for terminal state tracking
+    # INVARIANT: Once ctx.is_finalized is True, NO LLM calls allowed
+    ctx = RequestContext()
 
     # Loop to handle tool calls — budget enforced, terminal outcomes enforced
     try:
@@ -418,24 +499,19 @@ async def chat(
             # BUDGET CHECK: Before each LLM call
             budget.check_call_budget()
 
-            # If a terminal outcome occurred, make final call WITHOUT tools
-            # This forces Claude to produce a final response, no retries
-            if terminal_outcome_occurred:
-                # Omit tools parameter entirely - SDK doesn't accept None
-                response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2048,
-                    system=SYSTEM_PROMPT,
-                    messages=messages,
-                )
-            else:
-                response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=2048,
-                    system=SYSTEM_PROMPT,
-                    tools=tools,
-                    messages=messages,
-                )
+            # TERMINAL GUARD: Block LLM call if request is finalized
+            # This is the HARD INVARIANT - no LLM calls after terminal outcome
+            ctx.guard_llm_call()
+
+            # Make LLM call with tools
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                tools=tools,
+                messages=messages,
+            )
+            ctx.record_llm_call()
 
             # BUDGET RECORD: After each LLM call
             input_tokens = response.usage.input_tokens if response.usage else 0
@@ -456,7 +532,7 @@ async def chat(
             ]
 
             if not tool_use_blocks:
-                # No tool calls, extract text response — this is the exit path
+                # No tool calls, extract text response — this is the SUCCESS exit path
                 text_content = ""
                 for block in response.content:
                     if isinstance(block, TextBlock):
@@ -465,21 +541,6 @@ async def chat(
                 return ChatResponse(
                     message=ChatMessage(role="assistant", content=text_content),
                     tool_calls=tool_calls_made,
-                )
-
-            # INVARIANT: If terminal outcome occurred, tools should be disabled
-            # and we should not reach here. If we do, something is wrong.
-            if terminal_outcome_occurred:
-                logger.error(
-                    "terminal_outcome_violated",
-                    extra={
-                        "message": "Tool calls attempted after terminal outcome",
-                        "llm_calls": budget.llm_calls_used,
-                    },
-                )
-                raise RuntimeError(
-                    "INVARIANT VIOLATION: Tool calls attempted after terminal outcome. "
-                    "This indicates a bug in terminal outcome enforcement."
                 )
 
             # Process tool calls with server-injected user_id
@@ -494,32 +555,27 @@ async def chat(
                     }
                 )
 
-            # CHECK FOR TERMINAL OUTCOME
+            # CHECK FOR TERMINAL OUTCOME — RETURN IMMEDIATELY
+            # Do NOT continue loop, do NOT make another LLM call
             if tool_result.is_terminal:
-                terminal_outcome_occurred = True
-                logger.warning(
-                    "terminal_outcome_detected",
-                    extra={
-                        "reason": tool_result.terminal_reason.value,
-                        "error": tool_result.error_message,
-                        "llm_calls": budget.llm_calls_used,
-                        "action": "disabling_tools_for_final_response",
-                    },
-                )
+                ctx.finalize(tool_result.terminal_reason, tool_result.error_message or "")
+                # IMMEDIATE RETURN — no further code execution in this request
+                return _create_terminal_response(ctx, tool_calls_made)
 
-            # Add assistant response and tool results to messages
+            # Add assistant response and tool results to messages for next iteration
             messages.append({"role": "assistant", "content": response.content})
             messages.append({"role": "user", "content": tool_result.results})
 
     except BudgetExceededError as e:
-        # Budget exceeded — terminal failure, no retry
+        # Budget exceeded — terminal failure, finalize and return
+        ctx.finalize(TerminalReason.BUDGET_EXHAUSTED, e.message)
         logger.warning(
             "budget_exceeded",
             extra={
                 "limit_type": e.limit_type,
                 "used": e.used,
                 "limit": e.limit,
-                "llm_calls": budget.llm_calls_used,
+                "llm_calls": ctx.llm_call_count,
                 "tokens": budget.tokens_used,
             },
         )

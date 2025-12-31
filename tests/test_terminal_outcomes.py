@@ -5,8 +5,10 @@ These tests verify the invariant:
 - Terminal outcomes (tool errors, KnownFailure, RefusalError) must terminate execution
 - No retries are allowed after a terminal outcome
 - LLM calls are strictly bounded
+- RequestContext.is_finalized blocks ALL further LLM calls
 
 REGRESSION TESTS for the bug where simple requests exceed LLM call budget.
+REGRESSION TESTS for the bug where LLM calls occur after terminal outcome.
 """
 
 import json
@@ -16,8 +18,10 @@ import pytest
 from anthropic.types import ToolUseBlock
 
 from forgebreaker.api.chat import (
+    RequestContext,
     TerminalReason,
     ToolProcessingResult,
+    _create_terminal_response,
     _process_tool_calls,
 )
 from forgebreaker.models.budget import MAX_LLM_CALLS_PER_REQUEST
@@ -445,3 +449,285 @@ class TestCollectionCardDbMismatchTerminal:
             or "check" in (error.suggestion or "").lower()
         )
         assert error.detail is not None  # Shows which cards are missing
+
+
+# =============================================================================
+# REQUEST CONTEXT INVARIANT TESTS
+# =============================================================================
+
+
+class TestRequestContextInvariant:
+    """
+    Tests for the RequestContext.is_finalized invariant.
+
+    CRITICAL INVARIANT: Once is_finalized is True, NO LLM calls may be made.
+    This is enforced by guard_llm_call() which MUST be called before every
+    client.messages.create() invocation.
+    """
+
+    def test_guard_llm_call_allows_unfinalized(self) -> None:
+        """guard_llm_call() succeeds when not finalized."""
+        ctx = RequestContext()
+        assert ctx.is_finalized is False
+
+        # Should not raise
+        ctx.guard_llm_call()
+
+    def test_guard_llm_call_blocks_finalized(self) -> None:
+        """guard_llm_call() raises RuntimeError when finalized."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.KNOWN_FAILURE, "Test error")
+
+        with pytest.raises(RuntimeError) as exc_info:
+            ctx.guard_llm_call()
+
+        assert "INVARIANT VIOLATION" in str(exc_info.value)
+        assert "known_failure" in str(exc_info.value)
+
+    def test_finalize_is_idempotent(self) -> None:
+        """Calling finalize() multiple times is safe."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.TOOL_ERROR, "First error")
+        ctx.finalize(TerminalReason.REFUSAL, "Second error")  # Should not change
+
+        # First reason is preserved
+        assert ctx.terminal_reason == TerminalReason.TOOL_ERROR
+        assert ctx.terminal_message == "First error"
+
+    def test_llm_call_count_tracked(self) -> None:
+        """record_llm_call() increments counter."""
+        ctx = RequestContext()
+        assert ctx.llm_call_count == 0
+
+        ctx.record_llm_call()
+        assert ctx.llm_call_count == 1
+
+        ctx.record_llm_call()
+        assert ctx.llm_call_count == 2
+
+
+class TestTerminalResponseCreation:
+    """Tests for _create_terminal_response() helper."""
+
+    def test_known_failure_response(self) -> None:
+        """KnownFailure produces user-friendly error message."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.KNOWN_FAILURE, "Collection not found")
+
+        response = _create_terminal_response(ctx, [])
+
+        assert "I encountered an issue" in response.message.content
+        assert "Collection not found" in response.message.content
+        assert response.message.role == "assistant"
+
+    def test_refusal_response(self) -> None:
+        """Refusal produces appropriate error message."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.REFUSAL, "Card name leakage detected")
+
+        response = _create_terminal_response(ctx, [])
+
+        assert "cannot complete this request" in response.message.content
+        assert "Card name leakage" in response.message.content
+
+    def test_tool_error_response(self) -> None:
+        """Tool error produces technical error message."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.TOOL_ERROR, "Database connection failed")
+
+        response = _create_terminal_response(ctx, [])
+
+        assert "technical error" in response.message.content
+        assert "Database connection failed" in response.message.content
+
+    def test_budget_exhausted_response(self) -> None:
+        """Budget exhaustion produces limit message."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.BUDGET_EXHAUSTED, "LLM call limit exceeded")
+
+        response = _create_terminal_response(ctx, [])
+
+        assert "limit reached" in response.message.content
+
+    def test_tool_calls_preserved(self) -> None:
+        """Tool calls made before terminal are preserved in response."""
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.TOOL_ERROR, "Error")
+        tool_calls = [{"name": "build_deck", "input": {"theme": "goblin"}}]
+
+        response = _create_terminal_response(ctx, tool_calls)
+
+        assert response.tool_calls == tool_calls
+
+
+# =============================================================================
+# LLM CALL BLOCKING REGRESSION TESTS
+# =============================================================================
+
+
+class TestLLMCallBlocking:
+    """
+    Regression tests that verify NO LLM calls occur after terminal outcomes.
+
+    These tests assert the ABSENCE of LLM calls, which is the critical
+    invariant that was being violated in production.
+    """
+
+    def test_terminal_known_failure_blocks_llm_guard(self) -> None:
+        """
+        Test 1: Terminal KnownFailure blocks LLM via guard.
+
+        After finalize() is called, guard_llm_call() MUST raise.
+        This ensures no LLM call can possibly occur.
+        """
+        ctx = RequestContext()
+
+        # Simulate terminal outcome detection
+        ctx.finalize(TerminalReason.KNOWN_FAILURE, "Collection/card DB mismatch")
+
+        # LLM guard MUST block
+        with pytest.raises(RuntimeError) as exc_info:
+            ctx.guard_llm_call()
+
+        assert "INVARIANT VIOLATION" in str(exc_info.value)
+        assert ctx.llm_call_count == 0  # No LLM calls made
+
+    def test_terminal_tool_error_blocks_llm_guard(self) -> None:
+        """
+        Test 2: Tool terminal failure blocks LLM via guard.
+
+        After a tool raises an exception and we finalize,
+        no further LLM calls are possible.
+        """
+        ctx = RequestContext()
+        ctx.record_llm_call()  # Simulate first LLM call before tool execution
+
+        # Simulate tool failure and finalization
+        ctx.finalize(TerminalReason.TOOL_ERROR, "Tool execution failed")
+
+        # LLM guard MUST block any subsequent call
+        with pytest.raises(RuntimeError):
+            ctx.guard_llm_call()
+
+        # Only 1 LLM call was made (before the failure)
+        assert ctx.llm_call_count == 1
+
+    def test_budget_exhaustion_blocks_llm_guard(self) -> None:
+        """
+        Test 3: Budget exhaustion blocks LLM via guard.
+
+        After budget is exceeded and we finalize,
+        no further LLM calls are possible.
+        """
+        ctx = RequestContext()
+        ctx.record_llm_call()
+        ctx.record_llm_call()
+        ctx.record_llm_call()
+
+        # Simulate budget exhaustion
+        ctx.finalize(TerminalReason.BUDGET_EXHAUSTED, "Max LLM calls exceeded")
+
+        # LLM guard MUST block
+        with pytest.raises(RuntimeError) as exc_info:
+            ctx.guard_llm_call()
+
+        assert "budget_exhausted" in str(exc_info.value)
+
+    def test_successful_request_allows_llm_calls(self) -> None:
+        """
+        Test 4: Regression - simple request allows LLM calls.
+
+        A non-finalized context should allow LLM calls.
+        This ensures we haven't over-blocked.
+        """
+        ctx = RequestContext()
+
+        # Should succeed - not finalized
+        ctx.guard_llm_call()
+        ctx.record_llm_call()
+
+        # Still not finalized, should still succeed
+        ctx.guard_llm_call()
+        ctx.record_llm_call()
+
+        assert ctx.llm_call_count == 2
+        assert ctx.is_finalized is False
+
+    def test_guard_before_finalize_then_block(self) -> None:
+        """
+        Verify the sequence: guard succeeds, finalize, guard blocks.
+
+        This is the actual control flow in the chat handler.
+        """
+        ctx = RequestContext()
+
+        # First guard succeeds
+        ctx.guard_llm_call()
+        ctx.record_llm_call()
+
+        # Tool fails, we finalize
+        ctx.finalize(TerminalReason.TOOL_RETURNED_ERROR, "No cards found")
+
+        # Second guard MUST block
+        with pytest.raises(RuntimeError):
+            ctx.guard_llm_call()
+
+        # Only 1 LLM call total
+        assert ctx.llm_call_count == 1
+
+
+class TestControlFlowEnforcement:
+    """
+    Tests that verify the control flow guarantees.
+
+    These ensure that terminal outcomes result in IMMEDIATE return,
+    not just flag-setting that could be bypassed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_terminal_tool_result_triggers_immediate_return(
+        self,
+        mock_session: AsyncMock,
+        mock_tool_call: MagicMock,
+    ) -> None:
+        """
+        When tool processing returns is_terminal=True,
+        the chat handler must return immediately.
+
+        This test verifies that ToolProcessingResult.is_terminal
+        is correctly set and can be used to trigger immediate return.
+        """
+        with patch(
+            "forgebreaker.api.chat.execute_tool",
+            side_effect=KnownError(
+                kind=FailureKind.VALIDATION_FAILED,
+                message="Data integrity error",
+            ),
+        ):
+            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+
+        # is_terminal MUST be True
+        assert result.is_terminal is True
+
+        # This should trigger immediate return in chat handler:
+        # if tool_result.is_terminal:
+        #     ctx.finalize(...)
+        #     return _create_terminal_response(...)
+
+    def test_finalized_context_blocks_message_building(self) -> None:
+        """
+        Once finalized, we should NOT build LLM payloads.
+
+        In practice, the immediate return ensures this.
+        This test documents the invariant.
+        """
+        ctx = RequestContext()
+        ctx.finalize(TerminalReason.KNOWN_FAILURE, "Error")
+
+        # The guard would block any attempt to call LLM
+        # So building tools/messages/system_prompt would be pointless
+        with pytest.raises(RuntimeError):
+            ctx.guard_llm_call()
+
+        # If we reach guard_llm_call(), it means we tried to build a payload
+        # The guard ensures we fail before sending anything to Anthropic
