@@ -3,10 +3,18 @@ Chat API endpoint for Claude integration.
 
 Provides a chat endpoint that uses Claude to answer questions about
 deck recommendations and collection management.
+
+TERMINAL OUTCOME ENFORCEMENT:
+- Tool errors are terminal — no retries
+- KnownFailure exceptions are terminal — no retries
+- Successful tool completion allows ONE final LLM call for formatting
+- Budget exhaustion is terminal — already enforced
 """
 
 import json
 import logging
+from dataclasses import dataclass
+from enum import Enum
 from typing import Annotated, Any, cast
 
 import anthropic
@@ -30,6 +38,33 @@ from forgebreaker.models.budget import (
     BudgetExceededError,
     RequestBudget,
 )
+from forgebreaker.models.failure import KnownError, RefusalError
+
+# =============================================================================
+# TERMINAL OUTCOME CLASSIFICATION
+# =============================================================================
+
+
+class TerminalReason(str, Enum):
+    """Classification of why execution terminated."""
+
+    NONE = "none"  # Not terminal, continue
+    TOOL_ERROR = "tool_error"  # Tool raised an exception
+    TOOL_RETURNED_ERROR = "tool_returned_error"  # Tool returned error in result
+    KNOWN_FAILURE = "known_failure"  # KnownError exception
+    REFUSAL = "refusal"  # RefusalError exception
+    BUDGET_EXHAUSTED = "budget_exhausted"  # Budget limit hit
+
+
+@dataclass
+class ToolProcessingResult:
+    """Result of processing tool calls with terminal outcome detection."""
+
+    results: list[ToolResultBlockParam]
+    is_terminal: bool
+    terminal_reason: TerminalReason
+    error_message: str | None = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -202,9 +237,24 @@ async def _process_tool_calls(
     session: AsyncSession,
     tool_calls: list[ToolUseBlock],
     user_id: str,
-) -> list[ToolResultBlockParam]:
-    """Execute tool calls and return results."""
+) -> ToolProcessingResult:
+    """
+    Execute tool calls and return results with terminal outcome detection.
+
+    TERMINAL OUTCOMES (no retries allowed):
+    - KnownError exception → terminal
+    - RefusalError exception → terminal
+    - Any other exception → terminal
+    - Tool returns {"error": ...} → terminal
+
+    Returns:
+        ToolProcessingResult with is_terminal flag set appropriately
+    """
     results: list[ToolResultBlockParam] = []
+    is_terminal = False
+    terminal_reason = TerminalReason.NONE
+    error_message: str | None = None
+
     for tool_call in tool_calls:
         try:
             # Inject user_id server-side for security
@@ -216,6 +266,21 @@ async def _process_tool_calls(
                 tool_call.name,
                 tool_input,
             )
+
+            # Check if tool returned an error in its result
+            if isinstance(result, dict) and result.get("error"):
+                is_terminal = True
+                terminal_reason = TerminalReason.TOOL_RETURNED_ERROR
+                error_message = str(result.get("error"))
+                logger.warning(
+                    "tool_returned_error",
+                    extra={
+                        "tool": tool_call.name,
+                        "error": error_message,
+                        "terminal": True,
+                    },
+                )
+
             results.append(
                 {
                     "type": "tool_result",
@@ -223,8 +288,66 @@ async def _process_tool_calls(
                     "content": json.dumps(result),
                 }
             )
+
+        except KnownError as e:
+            # KnownError is TERMINAL — no retries
+            is_terminal = True
+            terminal_reason = TerminalReason.KNOWN_FAILURE
+            error_message = e.message
+            logger.warning(
+                "tool_known_failure",
+                extra={
+                    "tool": tool_call.name,
+                    "kind": e.kind.value,
+                    "error_msg": e.message,
+                    "terminal": True,
+                },
+            )
+            results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call.id,
+                    "content": json.dumps({"error": e.message, "kind": e.kind.value}),
+                    "is_error": True,
+                }
+            )
+
+        except RefusalError as e:
+            # RefusalError is TERMINAL — no retries
+            is_terminal = True
+            terminal_reason = TerminalReason.REFUSAL
+            error_message = e.message
+            logger.warning(
+                "tool_refusal",
+                extra={
+                    "tool": tool_call.name,
+                    "kind": e.kind.value,
+                    "error_msg": e.message,
+                    "terminal": True,
+                },
+            )
+            results.append(
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_call.id,
+                    "content": json.dumps({"error": e.message, "kind": e.kind.value}),
+                    "is_error": True,
+                }
+            )
+
         except Exception as e:
-            logger.exception("Tool execution error for %s", tool_call.name)
+            # Any other exception is TERMINAL — no retries
+            is_terminal = True
+            terminal_reason = TerminalReason.TOOL_ERROR
+            error_message = str(e)
+            logger.exception(
+                "tool_execution_error_terminal",
+                extra={
+                    "tool": tool_call.name,
+                    "error": str(e),
+                    "terminal": True,
+                },
+            )
             results.append(
                 {
                     "type": "tool_result",
@@ -233,7 +356,13 @@ async def _process_tool_calls(
                     "is_error": True,
                 }
             )
-    return results
+
+    return ToolProcessingResult(
+        results=results,
+        is_terminal=is_terminal,
+        terminal_reason=terminal_reason,
+        error_message=error_message,
+    )
 
 
 @router.post("/", response_model=ChatResponse)
@@ -252,6 +381,11 @@ async def chat(
     - Max LLM calls: MAX_LLM_CALLS_PER_REQUEST (hard cap)
     - Max tokens: MAX_TOKENS_PER_REQUEST (hard cap)
     - Exceedance is terminal — no retries, no fallback
+
+    Terminal outcome enforcement:
+    - Tool errors are TERMINAL — no retries, no additional LLM calls
+    - KnownFailure/RefusalError are TERMINAL — no retries
+    - After terminal outcome, return immediately with error message
     """
     if not settings.anthropic_api_key:
         raise HTTPException(
@@ -275,17 +409,24 @@ async def chat(
         max_tokens=MAX_TOKENS_PER_REQUEST,
     )
 
-    # Loop to handle tool calls — budget enforced
+    # Track if we've had a terminal outcome (tools disabled after this)
+    terminal_outcome_occurred = False
+
+    # Loop to handle tool calls — budget enforced, terminal outcomes enforced
     try:
         while True:
             # BUDGET CHECK: Before each LLM call
             budget.check_call_budget()
 
+            # If a terminal outcome occurred, make final call WITHOUT tools
+            # This forces Claude to produce a final response, no retries
+            current_tools = None if terminal_outcome_occurred else tools
+
             response = client.messages.create(
                 model="claude-sonnet-4-20250514",
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,
-                tools=tools,
+                tools=current_tools,
                 messages=messages,
             )
 
@@ -308,7 +449,7 @@ async def chat(
             ]
 
             if not tool_use_blocks:
-                # No tool calls, extract text response
+                # No tool calls, extract text response — this is the exit path
                 text_content = ""
                 for block in response.content:
                     if isinstance(block, TextBlock):
@@ -319,8 +460,23 @@ async def chat(
                     tool_calls=tool_calls_made,
                 )
 
+            # INVARIANT: If terminal outcome occurred, tools should be disabled
+            # and we should not reach here. If we do, something is wrong.
+            if terminal_outcome_occurred:
+                logger.error(
+                    "terminal_outcome_violated",
+                    extra={
+                        "message": "Tool calls attempted after terminal outcome",
+                        "llm_calls": budget.llm_calls_used,
+                    },
+                )
+                raise RuntimeError(
+                    "INVARIANT VIOLATION: Tool calls attempted after terminal outcome. "
+                    "This indicates a bug in terminal outcome enforcement."
+                )
+
             # Process tool calls with server-injected user_id
-            tool_results = await _process_tool_calls(session, tool_use_blocks, request.user_id)
+            tool_result = await _process_tool_calls(session, tool_use_blocks, request.user_id)
 
             # Record tool calls for response
             for block in tool_use_blocks:
@@ -331,9 +487,22 @@ async def chat(
                     }
                 )
 
+            # CHECK FOR TERMINAL OUTCOME
+            if tool_result.is_terminal:
+                terminal_outcome_occurred = True
+                logger.warning(
+                    "terminal_outcome_detected",
+                    extra={
+                        "reason": tool_result.terminal_reason.value,
+                        "error": tool_result.error_message,
+                        "llm_calls": budget.llm_calls_used,
+                        "action": "disabling_tools_for_final_response",
+                    },
+                )
+
             # Add assistant response and tool results to messages
             messages.append({"role": "assistant", "content": response.content})
-            messages.append({"role": "user", "content": tool_results})
+            messages.append({"role": "user", "content": tool_result.results})
 
     except BudgetExceededError as e:
         # Budget exceeded — terminal failure, no retry
