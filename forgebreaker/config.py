@@ -17,8 +17,8 @@ class Settings(BaseSettings):
 
     # Feature flag for candidate pool filtering (PR 4)
     # When True, uses filtered candidate pool instead of full collection
-    # Default: False (full collection behavior preserved)
-    use_filtered_candidate_pool: bool = False
+    # Default: True (filtered pool enabled, explicit opt-out available)
+    use_filtered_candidate_pool: bool = True
 
 
 settings = Settings()

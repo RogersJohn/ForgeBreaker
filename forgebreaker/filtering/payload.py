@@ -123,7 +123,10 @@ def filter_collection_for_payload(
             _metrics_history.append(metrics)
             logger.warning(
                 "payload_filter_fallback",
-                extra={"reason": "pool_empty", "intent": str(intent)},
+                extra={
+                    "filtered_candidate_pool_fallback_reason": "pool_empty",
+                    "intent": str(intent),
+                },
             )
             return collection_cards, metrics
 
@@ -133,7 +136,7 @@ def filter_collection_for_payload(
             logger.warning(
                 "payload_filter_fallback",
                 extra={
-                    "reason": "pool_too_small",
+                    "filtered_candidate_pool_fallback_reason": "pool_too_small",
                     "pool_size": pool_size,
                     "min_required": MIN_CANDIDATE_POOL_SIZE,
                 },
@@ -146,7 +149,7 @@ def filter_collection_for_payload(
             logger.warning(
                 "payload_filter_fallback",
                 extra={
-                    "reason": "pool_too_large",
+                    "filtered_candidate_pool_fallback_reason": "pool_too_large",
                     "pool_size": pool_size,
                     "max_allowed": MAX_CANDIDATE_POOL_SIZE,
                 },
@@ -162,7 +165,10 @@ def filter_collection_for_payload(
             _metrics_history.append(metrics)
             logger.warning(
                 "payload_filter_fallback",
-                extra={"reason": "filtered_empty", "original_size": full_size},
+                extra={
+                    "filtered_candidate_pool_fallback_reason": "filtered_empty",
+                    "original_size": full_size,
+                },
             )
             return collection_cards, metrics
 
@@ -173,6 +179,7 @@ def filter_collection_for_payload(
         logger.info(
             "payload_filter_applied",
             extra={
+                "filtered_candidate_pool_enabled": True,
                 "original_size": full_size,
                 "filtered_size": len(filtered),
                 "pool_size": pool_size,
