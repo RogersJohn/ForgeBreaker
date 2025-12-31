@@ -51,6 +51,7 @@ from forgebreaker.models.legality_context import (
     check_legality,
     filter_by_legality,
 )
+from forgebreaker.models.owned_card_pool import OwnedCardPool, build_owned_pool
 from forgebreaker.models.validated_deck import (
     DeckValidationError,
     ValidatedDeck,
@@ -85,6 +86,7 @@ __all__ = [
     "MetaDeck",
     "OutcomeType",
     "OwnedCard",
+    "OwnedCardPool",
     "ROTATION_VERSIONS",
     "RankedDeck",
     "RefusalError",
@@ -94,6 +96,7 @@ __all__ = [
     "ValidatedDeck",
     "WildcardCost",
     "build_allowed_set",
+    "build_owned_pool",
     "check_legality",
     "create_known_failure",
     "create_refusal",
