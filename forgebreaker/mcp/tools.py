@@ -142,87 +142,63 @@ class ToolDefinition:
 TOOL_DEFINITIONS: list[ToolDefinition] = [
     ToolDefinition(
         name="get_deck_recommendations",
-        description=(
-            "Get ranked deck recommendations based on the user's collection. "
-            "Returns decks sorted by how easy they are to build with current cards."
-        ),
+        description="Get ranked deck recommendations based on user's collection.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "format": {
                     "type": "string",
-                    "description": "Game format (standard, historic, explorer, etc.)",
+                    "description": "Game format",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of recommendations to return",
+                    "description": "Max recommendations",
                     "default": 5,
                 },
             },
-            "required": ["user_id", "format"],
+            "required": ["format"],
         },
     ),
     ToolDefinition(
         name="calculate_deck_distance",
-        description=(
-            "Calculate how far a user's collection is from completing a specific deck. "
-            "Returns missing cards, wildcard costs, and completion percentage."
-        ),
+        description="Calculate missing cards and wildcard cost for a deck.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "format": {
                     "type": "string",
-                    "description": "Game format the deck belongs to",
+                    "description": "Game format",
                 },
                 "deck_name": {
                     "type": "string",
-                    "description": "Name of the deck to check",
+                    "description": "Deck name",
                 },
             },
-            "required": ["user_id", "format", "deck_name"],
+            "required": ["format", "deck_name"],
         },
     ),
     ToolDefinition(
         name="get_collection_stats",
-        description=(
-            "Get statistics about a user's card collection. Returns total cards and unique cards."
-        ),
+        description="Get card collection statistics.",
         parameters={
             "type": "object",
-            "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
-            },
-            "required": ["user_id"],
+            "properties": {},
+            "required": [],
         },
     ),
     ToolDefinition(
         name="list_meta_decks",
-        description=(
-            "List available meta decks for a format. "
-            "Returns deck names, archetypes, win rates, and meta share."
-        ),
+        description="List available meta decks for a format.",
         parameters={
             "type": "object",
             "properties": {
                 "format": {
                     "type": "string",
-                    "description": "Game format (standard, historic, explorer, etc.)",
+                    "description": "Game format",
                 },
                 "limit": {
                     "type": "integer",
-                    "description": "Maximum number of decks to return",
+                    "description": "Max decks",
                     "default": 10,
                 },
             },
@@ -231,54 +207,35 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
     ),
     ToolDefinition(
         name="search_collection",
-        description=(
-            "Search the user's card collection for cards matching specific criteria. "
-            "Use for queries like: 'how many black dragons?', 'what creatures have flying?', "
-            "'show me my 3-drops', 'what cards draw cards?', 'what mono-red cards do I have?', "
-            "'what Standard-legal rares do I own?'"
-        ),
+        description="Search user's collection for cards matching criteria.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "name_contains": {
                     "type": "string",
-                    "description": "Find cards with this text in the name (case-insensitive)",
+                    "description": "Text in card name",
                 },
                 "oracle_text": {
                     "type": "string",
-                    "description": (
-                        "Find cards with this text in the rules text. "
-                        "Examples: 'draw a card', 'destroy target', 'create a token'"
-                    ),
+                    "description": "Text in rules text",
                 },
                 "card_type": {
                     "type": "string",
-                    "description": (
-                        "Filter by type line (Creature, Instant, Dragon, Goblin, Shrine, etc.)"
-                    ),
+                    "description": "Type line filter",
                 },
                 "colors": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["W", "U", "B", "R", "G"]},
-                    "description": (
-                        "Filter by color identity (W=White, U=Blue, B=Black, R=Red, G=Green)"
-                    ),
+                    "description": "Color identity filter",
                 },
                 "color_exact": {
                     "type": "boolean",
-                    "description": (
-                        "If true, card must have EXACTLY these colors (for mono-color queries). "
-                        "If false (default), card must have at least one of these colors."
-                    ),
+                    "description": "Require exact color match",
                     "default": False,
                 },
                 "cmc": {
                     "type": "integer",
-                    "description": "Exact mana value (e.g., 3 for 3-drops)",
+                    "description": "Exact mana value",
                 },
                 "cmc_min": {
                     "type": "integer",
@@ -291,19 +248,16 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                 "keywords": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": (
-                        "Filter by keyword abilities. Card must have ALL specified keywords. "
-                        "Examples: ['flying'], ['lifelink', 'deathtouch'], ['haste']"
-                    ),
+                    "description": "Required keyword abilities",
                 },
                 "set_code": {
                     "type": "string",
-                    "description": "Filter by set code (e.g., 'DMU', 'FDN', 'OTJ')",
+                    "description": "Set code filter",
                 },
                 "rarity": {
                     "type": "string",
                     "enum": ["common", "uncommon", "rare", "mythic"],
-                    "description": "Filter by rarity",
+                    "description": "Rarity filter",
                 },
                 "format_legal": {
                     "type": "string",
@@ -318,132 +272,99 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
                         "brawl",
                         "timeless",
                     ],
-                    "description": "Filter by format legality",
+                    "description": "Format legality filter",
                 },
                 "power_min": {
                     "type": "integer",
-                    "description": "Minimum power (creatures only)",
+                    "description": "Min power",
                 },
                 "power_max": {
                     "type": "integer",
-                    "description": "Maximum power (creatures only)",
+                    "description": "Max power",
                 },
                 "toughness_min": {
                     "type": "integer",
-                    "description": "Minimum toughness (creatures only)",
+                    "description": "Min toughness",
                 },
                 "toughness_max": {
                     "type": "integer",
-                    "description": "Maximum toughness (creatures only)",
+                    "description": "Max toughness",
                 },
                 "min_quantity": {
                     "type": "integer",
-                    "description": "Only show cards owned in at least this quantity",
+                    "description": "Min owned quantity",
                     "default": 1,
                 },
             },
-            "required": ["user_id"],
+            "required": [],
         },
     ),
     ToolDefinition(
         name="build_deck",
-        description=(
-            "Build a custom deck from the user's collection around a theme. "
-            "Use when the user asks to build a deck around a card type, creature type, "
-            "or keyword like 'build me a shrine deck' or 'make a goblin deck'. "
-            "This builds a COMPLETE 60-card deck using ONLY cards they own."
-        ),
+        description="Build a 60-card deck from user's collection around a theme.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "theme": {
                     "type": "string",
-                    "description": (
-                        "Card name, type, or keyword to build around. "
-                        "Examples: 'Shrine', 'Goblin', 'sacrifice', 'graveyard'"
-                    ),
+                    "description": "Theme to build around",
                 },
                 "colors": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["W", "U", "B", "R", "G"]},
-                    "description": (
-                        "Optional color restriction. "
-                        "If not specified, colors are determined from theme cards."
-                    ),
+                    "description": "Color restriction",
                 },
                 "format": {
                     "type": "string",
                     "enum": ["standard", "historic", "explorer", "timeless", "brawl"],
-                    "description": "Format for legality checking",
+                    "description": "Format for legality",
                     "default": "standard",
                 },
                 "include_cards": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific cards that MUST be included in the deck",
+                    "description": "Cards to include",
                 },
             },
-            "required": ["user_id", "theme"],
+            "required": ["theme"],
         },
     ),
     ToolDefinition(
         name="find_synergies",
-        description=(
-            "Find cards in the user's collection that synergize with a specific card. "
-            "Use when the user asks 'what cards work well with X?' or 'find synergies for X'. "
-            "Returns cards that share mechanical synergies like sacrifice, graveyard, tokens, etc."
-        ),
+        description="Find cards that synergize with a specific card.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "card_name": {
                     "type": "string",
-                    "description": "The card to find synergies for",
+                    "description": "Card to find synergies for",
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of synergistic cards to return",
+                    "description": "Max results",
                     "default": 20,
                 },
             },
-            "required": ["user_id", "card_name"],
+            "required": ["card_name"],
         },
     ),
     ToolDefinition(
         name="export_to_arena",
-        description=(
-            "Convert a deck to MTG Arena import format. "
-            "Use this AFTER building a deck with build_deck. "
-            "Returns text that can be copy-pasted directly into Arena's import function."
-        ),
+        description="Convert a deck to MTG Arena import format.",
         parameters={
             "type": "object",
             "properties": {
                 "cards": {
                     "type": "object",
-                    "description": (
-                        "The deck's non-land cards as {card_name: quantity}. "
-                        "Get this from the 'cards' field of a build_deck response."
-                    ),
+                    "description": "Non-land cards {name: qty}",
                 },
                 "lands": {
                     "type": "object",
-                    "description": (
-                        "The deck's lands as {land_name: quantity}. "
-                        "Get this from the 'lands' field of a build_deck response."
-                    ),
+                    "description": "Land cards {name: qty}",
                 },
                 "deck_name": {
                     "type": "string",
-                    "description": "Name for the deck (optional)",
+                    "description": "Deck name",
                     "default": "Deck",
                 },
             },
@@ -452,100 +373,67 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
     ),
     ToolDefinition(
         name="improve_deck",
-        description=(
-            "Analyze an existing deck list and suggest improvements from the user's collection. "
-            "Use when a user pastes a deck list and asks to improve, upgrade, or optimize it. "
-            "Returns card swap suggestions, deck analysis, and general advice."
-        ),
+        description="Suggest improvements to a deck from user's collection.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "deck_text": {
                     "type": "string",
-                    "description": (
-                        "The deck list in Arena format. "
-                        "Example: '4 Lightning Bolt (STA) 42\\n20 Mountain (FDN) 279'"
-                    ),
+                    "description": "Deck list in Arena format",
                 },
                 "max_suggestions": {
                     "type": "integer",
-                    "description": "Maximum number of card swap suggestions to return",
+                    "description": "Max suggestions",
                     "default": 5,
                 },
             },
-            "required": ["user_id", "deck_text"],
+            "required": ["deck_text"],
         },
     ),
     ToolDefinition(
         name="get_deck_assumptions",
-        description=(
-            "Analyze a deck to surface its implicit assumptions. "
-            "Use when a user asks 'what does this deck rely on?', 'why is my deck inconsistent?', "
-            "'what assumptions does this deck make?', or 'what makes this deck fragile?'. "
-            "Returns mana curve expectations, key card dependencies, draw consistency, "
-            "and interaction timing assumptions with health indicators."
-        ),
+        description="Analyze a deck's implicit assumptions and fragility.",
         parameters={
             "type": "object",
             "properties": {
-                "user_id": {
-                    "type": "string",
-                    "description": "The user's ID",
-                },
                 "format": {
                     "type": "string",
-                    "description": "Game format the deck belongs to",
+                    "description": "Game format",
                 },
                 "deck_name": {
                     "type": "string",
-                    "description": "Name of the meta deck to analyze",
+                    "description": "Deck name",
                 },
             },
-            "required": ["user_id", "format", "deck_name"],
+            "required": ["format", "deck_name"],
         },
     ),
     ToolDefinition(
         name="stress_deck_assumption",
-        description=(
-            "Apply stress to a deck to see how it handles adversity. "
-            "Use when a user asks 'what if I don't draw X?', "
-            "'what happens if my key card is removed?', "
-            "'how does this deck handle mana problems?', or 'stress test this deck'. "
-            "Returns before/after fragility comparison and recommendations."
-        ),
+        description="Apply stress to a deck and measure fragility impact.",
         parameters={
             "type": "object",
             "properties": {
                 "format": {
                     "type": "string",
-                    "description": "Game format the deck belongs to",
+                    "description": "Game format",
                 },
                 "deck_name": {
                     "type": "string",
-                    "description": "Name of the meta deck to stress test",
+                    "description": "Deck name",
                 },
                 "stress_type": {
                     "type": "string",
                     "enum": ["underperform", "missing", "delayed", "hostile_meta"],
-                    "description": (
-                        "Type of stress: underperform (key cards less effective), "
-                        "missing (remove copies of a card), delayed (mana problems), "
-                        "hostile_meta (more opponent interaction)"
-                    ),
+                    "description": "Type of stress",
                 },
                 "target": {
                     "type": "string",
-                    "description": (
-                        "What to stress - a card name for 'missing', or 'all' for general stress"
-                    ),
+                    "description": "Card name or 'all'",
                 },
                 "intensity": {
                     "type": "number",
-                    "description": "Stress intensity from 0.0 (minimal) to 1.0 (maximum)",
+                    "description": "Intensity 0.0-1.0",
                     "default": 0.5,
                 },
             },
@@ -554,22 +442,17 @@ TOOL_DEFINITIONS: list[ToolDefinition] = [
     ),
     ToolDefinition(
         name="find_deck_breaking_point",
-        description=(
-            "Find the weakest point in a deck by testing multiple stress scenarios. "
-            "Use when a user asks 'what breaks first in this deck?', "
-            "'what is my deck's biggest weakness?', or 'how resilient is this deck?'. "
-            "Returns the most vulnerable assumption and overall resilience score."
-        ),
+        description="Find the weakest point in a deck.",
         parameters={
             "type": "object",
             "properties": {
                 "format": {
                     "type": "string",
-                    "description": "Game format the deck belongs to",
+                    "description": "Game format",
                 },
                 "deck_name": {
                     "type": "string",
-                    "description": "Name of the meta deck to analyze",
+                    "description": "Deck name",
                 },
             },
             "required": ["format", "deck_name"],
