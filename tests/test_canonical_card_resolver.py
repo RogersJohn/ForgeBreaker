@@ -144,6 +144,132 @@ class TestCanonicalCardModel:
         assert isinstance(card.colors, tuple)
 
 
+class TestCanonicalCardIdentity:
+    """
+    Tests for oracle_id-based identity.
+
+    INVARIANT: CanonicalCard identity is oracle_id ONLY.
+    Two cards with same oracle_id are equal, regardless of other fields.
+    This handles split cards, adventures, MDFCs, rebalanced cards.
+    """
+
+    def test_equality_based_on_oracle_id(self) -> None:
+        """Two CanonicalCards with same oracle_id are equal."""
+        card1 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Lightning Bolt",
+            type_line="Instant",
+            colors=("R",),
+            legalities={"standard": "legal"},
+        )
+        card2 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Lightning Bolt (Variant)",  # Different name
+            type_line="Instant - Rebalanced",  # Different type
+            colors=("R", "W"),  # Different colors
+            legalities={"standard": "not_legal"},  # Different legalities
+        )
+        assert card1 == card2
+
+    def test_inequality_based_on_oracle_id(self) -> None:
+        """Two CanonicalCards with different oracle_id are not equal."""
+        card1 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Lightning Bolt",
+            type_line="Instant",
+            colors=("R",),
+            legalities={},
+        )
+        card2 = CanonicalCard(
+            oracle_id="oracle-456",
+            name="Lightning Bolt",  # Same name!
+            type_line="Instant",
+            colors=("R",),
+            legalities={},
+        )
+        assert card1 != card2
+
+    def test_hash_based_on_oracle_id(self) -> None:
+        """Hash is consistent with oracle_id-based equality."""
+        card1 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Lightning Bolt",
+            type_line="Instant",
+            colors=("R",),
+            legalities={},
+        )
+        card2 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Different Name",  # Different name, same oracle
+            type_line="Different Type",
+            colors=("U",),
+            legalities={"modern": "legal"},
+        )
+        assert hash(card1) == hash(card2)
+
+    def test_set_deduplication_by_oracle_id(self) -> None:
+        """CanonicalCards deduplicate correctly in sets."""
+        card1 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Version A",
+            type_line="Type A",
+            colors=(),
+            legalities={},
+        )
+        card2 = CanonicalCard(
+            oracle_id="oracle-123",  # Same oracle
+            name="Version B",
+            type_line="Type B",
+            colors=(),
+            legalities={},
+        )
+        card3 = CanonicalCard(
+            oracle_id="oracle-456",  # Different oracle
+            name="Version A",  # Same name as card1
+            type_line="Type A",
+            colors=(),
+            legalities={},
+        )
+        card_set = {card1, card2, card3}
+        assert len(card_set) == 2  # card1 and card2 dedupe
+
+    def test_dict_key_by_oracle_id(self) -> None:
+        """CanonicalCards work as dict keys based on oracle_id."""
+        card1 = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Name A",
+            type_line="Type",
+            colors=(),
+            legalities={},
+        )
+        card2 = CanonicalCard(
+            oracle_id="oracle-123",  # Same oracle
+            name="Name B",
+            type_line="Type",
+            colors=(),
+            legalities={},
+        )
+        card_dict: dict[CanonicalCard, int] = {card1: 100}
+        # card2 should access same entry
+        assert card_dict[card2] == 100
+        card_dict[card2] = 200
+        assert card_dict[card1] == 200
+        assert len(card_dict) == 1
+
+    def test_not_equal_to_non_card(self) -> None:
+        """CanonicalCard is not equal to non-card objects."""
+        card = CanonicalCard(
+            oracle_id="oracle-123",
+            name="Test",
+            type_line="Instant",
+            colors=(),
+            legalities={},
+        )
+        assert card != "oracle-123"
+        assert card != 123
+        assert card != {"oracle_id": "oracle-123"}
+
+
 class TestOwnedCardModel:
     """Tests for OwnedCard dataclass."""
 
@@ -243,6 +369,45 @@ class TestCanonicalCardResolver:
         assert len(result.unresolved) == 1
         assert result.unresolved[0][0].name == "Fake Card"
         assert "not found" in result.unresolved[0][1].lower()
+
+    def test_consolidates_by_oracle_id_not_name(self) -> None:
+        """
+        CRITICAL: Consolidation is by oracle_id, not name.
+
+        This handles split cards, adventures, MDFCs, rebalanced cards.
+        Example: "Fire // Ice" and "Fire" might resolve to same oracle_id.
+        """
+        # Card DB with two names mapping to same oracle_id
+        card_db = {
+            "Fire // Ice": {
+                "oracle_id": "oracle-fire-ice",
+                "name": "Fire // Ice",
+                "type_line": "Instant // Instant",
+                "colors": ["R", "U"],
+                "set": "mh2",
+                "legalities": {"modern": "legal"},
+            },
+            "Fire": {
+                "oracle_id": "oracle-fire-ice",  # Same oracle_id!
+                "name": "Fire",
+                "type_line": "Instant",
+                "colors": ["R"],
+                "set": "mh2",
+                "legalities": {"modern": "legal"},
+            },
+        }
+        resolver = CanonicalCardResolver(card_db)
+
+        inventory = [
+            InventoryCard(name="Fire // Ice", set_code="MH2", count=4),
+            InventoryCard(name="Fire", set_code="MH2", count=2),  # Different name!
+        ]
+        result = resolver.resolve(inventory)
+
+        assert result.all_resolved
+        # Should consolidate to ONE card (same oracle_id)
+        assert len(result.owned_cards) == 1
+        assert result.owned_cards[0].count == 6  # 4 + 2
 
     def test_mixed_valid_invalid(self, resolver: CanonicalCardResolver) -> None:
         """Mix of valid and invalid cards tracked correctly."""

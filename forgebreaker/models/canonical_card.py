@@ -35,7 +35,7 @@ class InventoryCard:
     collector_number: str | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, eq=False)
 class CanonicalCard:
     """
     Oracle-backed canonical card from Scryfall.
@@ -43,8 +43,13 @@ class CanonicalCard:
     This is TRUSTED data backed by the Scryfall database.
     Construction implies successful resolution against oracle data.
 
+    IDENTITY INVARIANT:
+    - Two CanonicalCards are equal IFF oracle_id matches
+    - This handles split cards, adventures, MDFCs, rebalanced cards
+    - Name is NOT used for identity (names can vary by printing)
+
     Attributes:
-        oracle_id: Scryfall oracle ID (stable across printings)
+        oracle_id: Scryfall oracle ID (stable across printings) - IDENTITY KEY
         name: Canonical card name from Scryfall
         type_line: Full type line (e.g., "Creature - Human Wizard")
         colors: Tuple of color letters (W, U, B, R, G) - immutable
@@ -58,6 +63,16 @@ class CanonicalCard:
     colors: tuple[str, ...]
     legalities: dict[str, str]
     arena_only: bool = False
+
+    def __eq__(self, other: object) -> bool:
+        """Identity is oracle_id only."""
+        if not isinstance(other, CanonicalCard):
+            return NotImplemented
+        return self.oracle_id == other.oracle_id
+
+    def __hash__(self) -> int:
+        """Hash is oracle_id only."""
+        return hash(self.oracle_id)
 
 
 @dataclass(frozen=True, slots=True)
