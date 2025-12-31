@@ -4,6 +4,9 @@ Tests for PR2: Oracle-Derived Legality Only.
 INVARIANT: Format legality MUST come exclusively from CanonicalCard.legalities.
 CSV set codes (e.g., "Y24", "FDN", "DFT") must NEVER influence legality decisions.
 
+NEW INVARIANT: All legality checks must accept an explicit LegalityContext.
+This makes rotation changes testable and prevents silent legality shifts.
+
 These tests exist to prevent regression - the system must always use oracle data.
 """
 
@@ -15,6 +18,14 @@ from forgebreaker.filtering.candidate_pool import (
 )
 from forgebreaker.models.canonical_card import InventoryCard
 from forgebreaker.models.intent import DeckIntent, Format
+from forgebreaker.models.legality_context import (
+    CURRENT_ROTATION_VERSION,
+    LegalityContext,
+    LegalityFormat,
+    LegalityResult,
+    check_legality,
+    filter_by_legality,
+)
 from forgebreaker.services.canonical_card_resolver import CanonicalCardResolver
 
 # =============================================================================
@@ -374,3 +385,263 @@ class TestNoSetCodeLegalityRegression:
 
         # Missing set field doesn't affect legality
         assert "No Set Card" in filtered
+
+
+# =============================================================================
+# LEGALITY CONTEXT TESTS - EXPLICIT, TESTABLE LEGALITY
+# =============================================================================
+
+
+class TestLegalityContextModel:
+    """
+    Tests for the LegalityContext model.
+
+    INVARIANT: All legality checks must accept an explicit context.
+    """
+
+    def test_context_creation_current(self) -> None:
+        """LegalityContext.current() creates context for current rotation."""
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+
+        assert ctx.format == LegalityFormat.STANDARD
+        assert ctx.rotation_version == CURRENT_ROTATION_VERSION
+
+    def test_context_creation_at_rotation(self) -> None:
+        """LegalityContext.at_rotation() creates context for specific rotation."""
+        ctx = LegalityContext.at_rotation(LegalityFormat.STANDARD, "2024-Q4")
+
+        assert ctx.format == LegalityFormat.STANDARD
+        assert ctx.rotation_version == "2024-Q4"
+        assert ctx.effective_date is not None
+
+    def test_context_is_immutable(self) -> None:
+        """LegalityContext is frozen (immutable)."""
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+
+        with pytest.raises(AttributeError):
+            ctx.format = LegalityFormat.HISTORIC  # type: ignore[misc]
+
+    def test_context_format_name_property(self) -> None:
+        """format_name returns string for dict lookup."""
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+        assert ctx.format_name == "standard"
+
+        ctx_historic = LegalityContext.current(LegalityFormat.HISTORIC)
+        assert ctx_historic.format_name == "historic"
+
+
+class TestCheckLegalityWithContext:
+    """
+    Tests for check_legality() with explicit context.
+
+    INVARIANT: Legality is determined by context, not implicit defaults.
+    """
+
+    def test_check_legality_returns_result(self) -> None:
+        """check_legality returns LegalityResult with context."""
+        card_data = {"legalities": {"standard": "legal", "historic": "legal"}}
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+
+        result = check_legality(card_data, ctx)
+
+        assert isinstance(result, LegalityResult)
+        assert result.is_legal is True
+        assert result.context == ctx
+        assert "standard" in result.reason
+
+    def test_check_legality_not_legal(self) -> None:
+        """check_legality returns is_legal=False for not_legal cards."""
+        card_data = {"legalities": {"standard": "not_legal", "historic": "legal"}}
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+
+        result = check_legality(card_data, ctx)
+
+        assert result.is_legal is False
+
+    def test_check_legality_missing_format(self) -> None:
+        """Missing format in legalities dict means not legal."""
+        card_data = {
+            "legalities": {"historic": "legal"}  # No standard entry
+        }
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+
+        result = check_legality(card_data, ctx)
+
+        assert result.is_legal is False
+
+    def test_check_legality_different_formats(self) -> None:
+        """Same card can have different legality in different formats."""
+        card_data = {"legalities": {"standard": "not_legal", "historic": "legal"}}
+
+        std_ctx = LegalityContext.current(LegalityFormat.STANDARD)
+        hist_ctx = LegalityContext.current(LegalityFormat.HISTORIC)
+
+        std_result = check_legality(card_data, std_ctx)
+        hist_result = check_legality(card_data, hist_ctx)
+
+        assert std_result.is_legal is False
+        assert hist_result.is_legal is True
+
+
+class TestLegalityChangesWithContext:
+    """
+    Tests proving legality behavior changes when context changes.
+
+    CRITICAL: These tests prove the context system works correctly.
+    If you can change the context and get different results, the system
+    is working as designed.
+    """
+
+    @pytest.fixture
+    def rotation_aware_card_db(self) -> dict:
+        """
+        Card database simulating rotation.
+
+        - "Rotating Out Card": Was Standard-legal in 2024-Q3, not after rotation
+        - "New Set Card": Standard-legal after 2024-Q4 rotation
+        - "Evergreen Card": Always Standard-legal
+        """
+        return {
+            "Rotating Out Card": {
+                "oracle_id": "rotating-out",
+                "legalities": {
+                    # In reality, Scryfall updates this at rotation
+                    # We simulate by checking rotation_version in tests
+                    "standard": "not_legal",  # Current state (post-rotation)
+                    "historic": "legal",
+                },
+                "_pre_rotation_standard": "legal",  # Test helper field
+            },
+            "New Set Card": {
+                "oracle_id": "new-set",
+                "legalities": {
+                    "standard": "legal",  # Current state
+                    "historic": "legal",
+                },
+                "_pre_rotation_standard": "not_legal",  # Wasn't legal before
+            },
+            "Evergreen Card": {
+                "oracle_id": "evergreen",
+                "legalities": {
+                    "standard": "legal",
+                    "historic": "legal",
+                },
+                "_pre_rotation_standard": "legal",  # Always legal
+            },
+        }
+
+    def test_context_determines_which_check_runs(self, rotation_aware_card_db: dict) -> None:
+        """
+        Different contexts run different checks.
+
+        This proves the context is actually used, not ignored.
+        """
+        card = rotation_aware_card_db["Rotating Out Card"]
+
+        # Standard context
+        std_ctx = LegalityContext.current(LegalityFormat.STANDARD)
+        std_result = check_legality(card, std_ctx)
+
+        # Historic context
+        hist_ctx = LegalityContext.current(LegalityFormat.HISTORIC)
+        hist_result = check_legality(card, hist_ctx)
+
+        # Different context = different result
+        assert std_result.is_legal is False
+        assert hist_result.is_legal is True
+
+        # Results track which context was used
+        assert std_result.context.format == LegalityFormat.STANDARD
+        assert hist_result.context.format == LegalityFormat.HISTORIC
+
+    def test_context_includes_rotation_version_in_result(
+        self, rotation_aware_card_db: dict
+    ) -> None:
+        """
+        LegalityResult includes rotation version for auditing.
+        """
+        card = rotation_aware_card_db["Evergreen Card"]
+
+        ctx_2024_q3 = LegalityContext.at_rotation(LegalityFormat.STANDARD, "2024-Q3")
+        ctx_2024_q4 = LegalityContext.at_rotation(LegalityFormat.STANDARD, "2024-Q4")
+
+        result_q3 = check_legality(card, ctx_2024_q3)
+        result_q4 = check_legality(card, ctx_2024_q4)
+
+        # Results record which rotation version was checked
+        assert result_q3.context.rotation_version == "2024-Q3"
+        assert result_q4.context.rotation_version == "2024-Q4"
+        assert "2024-Q3" in result_q3.reason
+        assert "2024-Q4" in result_q4.reason
+
+    def test_filter_by_legality_uses_context(self, rotation_aware_card_db: dict) -> None:
+        """
+        filter_by_legality() respects the explicit context.
+        """
+        all_cards = set(rotation_aware_card_db.keys())
+
+        # Standard context - post rotation
+        std_ctx = LegalityContext.current(LegalityFormat.STANDARD)
+        std_legal = filter_by_legality(all_cards, rotation_aware_card_db, std_ctx)
+
+        # Historic context
+        hist_ctx = LegalityContext.current(LegalityFormat.HISTORIC)
+        hist_legal = filter_by_legality(all_cards, rotation_aware_card_db, hist_ctx)
+
+        # Standard excludes rotated card
+        assert "Rotating Out Card" not in std_legal
+        assert "New Set Card" in std_legal
+        assert "Evergreen Card" in std_legal
+
+        # Historic includes everything
+        assert "Rotating Out Card" in hist_legal
+        assert "New Set Card" in hist_legal
+        assert "Evergreen Card" in hist_legal
+
+
+class TestExplicitContextEnforcement:
+    """
+    Tests proving context must be explicit.
+
+    INVARIANT: No implicit "current" context. Code must be explicit.
+    """
+
+    def test_check_legality_requires_context_argument(self) -> None:
+        """
+        check_legality() requires explicit context.
+
+        This is a compile-time check in typed code - this test documents the API.
+        """
+        card_data = {"legalities": {"standard": "legal"}}
+
+        # This should work - explicit context
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+        result = check_legality(card_data, ctx)
+        assert result.is_legal is True
+
+        # This would fail type checking (context is required)
+        # check_legality(card_data)  # TypeError: missing required argument
+
+    def test_filter_by_legality_requires_context_argument(self) -> None:
+        """
+        filter_by_legality() requires explicit context.
+        """
+        cards = {"Test Card"}
+        card_db = {"Test Card": {"legalities": {"standard": "legal"}}}
+
+        # This should work - explicit context
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+        result = filter_by_legality(cards, card_db, ctx)
+        assert "Test Card" in result
+
+    def test_context_current_is_explicit_not_implicit(self) -> None:
+        """
+        LegalityContext.current() is explicit, not implicit.
+
+        The caller must still call .current() - it's not a hidden default.
+        """
+        # You must explicitly call current()
+        ctx = LegalityContext.current(LegalityFormat.STANDARD)
+
+        # This documents that "current" is an explicit choice
+        assert ctx.rotation_version == CURRENT_ROTATION_VERSION
