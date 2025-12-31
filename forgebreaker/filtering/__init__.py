@@ -6,6 +6,7 @@ before the LLM is called.
 
 Shadow mode (PR 3): Filtering computed but not used.
 Payload filtering (PR 4): Filtering used behind feature flag.
+Scored pool (PR 5): Scoring replaces elimination.
 """
 
 from forgebreaker.filtering.candidate_pool import (
@@ -22,6 +23,15 @@ from forgebreaker.filtering.payload import (
     get_payload_metrics,
     reset_payload_metrics,
 )
+from forgebreaker.filtering.scored_pool import (
+    MAX_POOL_SIZE,
+    MIN_POOL_SIZE,
+    ScoredCandidatePool,
+    ScoredCard,
+    build_scored_pool,
+    score_card,
+    select_candidates,
+)
 
 __all__ = [
     # Candidate pool (PR 3)
@@ -36,4 +46,12 @@ __all__ = [
     "filter_collection_for_payload",
     "get_payload_metrics",
     "reset_payload_metrics",
+    # Scored pool (PR 5)
+    "MAX_POOL_SIZE",
+    "MIN_POOL_SIZE",
+    "ScoredCandidatePool",
+    "ScoredCard",
+    "build_scored_pool",
+    "score_card",
+    "select_candidates",
 ]
