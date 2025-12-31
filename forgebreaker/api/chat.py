@@ -27,6 +27,48 @@ from forgebreaker.mcp.tools import TOOL_DEFINITIONS, execute_tool
 
 logger = logging.getLogger(__name__)
 
+
+# =============================================================================
+# TOKEN METRICS (PR 4)
+# =============================================================================
+
+_token_metrics: list[dict[str, Any]] = []
+
+
+def get_token_metrics() -> list[dict[str, Any]]:
+    """Get recorded token metrics."""
+    return _token_metrics.copy()
+
+
+def reset_token_metrics() -> None:
+    """Reset token metrics (for testing)."""
+    _token_metrics.clear()
+
+
+def _record_token_usage(
+    input_tokens: int,
+    output_tokens: int,
+    feature_flag_enabled: bool,
+) -> None:
+    """Record token usage metrics."""
+    _token_metrics.append(
+        {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "feature_flag_enabled": feature_flag_enabled,
+        }
+    )
+    logger.info(
+        "token_usage",
+        extra={
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "feature_flag_enabled": feature_flag_enabled,
+        },
+    )
+
+
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 # System prompt for Claude
@@ -226,6 +268,14 @@ async def chat(
             tools=tools,
             messages=messages,
         )
+
+        # Record token usage metrics (PR 4)
+        if response.usage:
+            _record_token_usage(
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                feature_flag_enabled=settings.use_filtered_candidate_pool,
+            )
 
         # Check if Claude wants to use tools
         tool_use_blocks = [block for block in response.content if isinstance(block, ToolUseBlock)]

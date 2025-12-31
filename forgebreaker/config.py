@@ -15,5 +15,23 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
 
+    # Feature flag for candidate pool filtering (PR 4)
+    # When True, uses filtered candidate pool instead of full collection
+    # Default: False (full collection behavior preserved)
+    use_filtered_candidate_pool: bool = False
+
 
 settings = Settings()
+
+
+# =============================================================================
+# CANDIDATE POOL SAFETY LIMITS
+# =============================================================================
+
+# Minimum pool size - below this, fall back to full collection
+# (pool too small to build meaningful deck)
+MIN_CANDIDATE_POOL_SIZE = 10
+
+# Maximum pool size - above this, fall back to full collection
+# (pool not sufficiently filtered, no benefit)
+MAX_CANDIDATE_POOL_SIZE = 100
