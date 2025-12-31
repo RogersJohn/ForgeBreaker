@@ -248,14 +248,15 @@ class TestSingleShotSuccess:
         """
         Contract: MAX_LLM_CALLS_PER_REQUEST allows success but prevents loops.
 
-        For a simple request:
-        - LLM call 1: Claude sees request, calls tool
-        - LLM call 2: Claude receives result, formats response
-        - LLM call 3: Buffer for edge cases
+        Budget for agentic tool-use loop:
+        - Single tool use = 2 calls (invoke + process result)
+        - Two chained tools = 3 calls
+        - Tool + clarification + tool = 4 calls
+        - Buffer for edge cases = 5 calls
 
-        3 calls should be sufficient for any single-intent request.
+        5 calls allows reasonable tool chains while preventing runaway loops.
         """
-        assert MAX_LLM_CALLS_PER_REQUEST == 3
+        assert MAX_LLM_CALLS_PER_REQUEST == 5
 
 
 # =============================================================================

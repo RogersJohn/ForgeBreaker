@@ -195,8 +195,9 @@ Use when users want to know what works together:
 - "Find synergies for my sacrifice deck"
 
 ### export_to_arena
-Use AFTER building a deck to give the user importable text.
-Takes the cards and lands from a previous build_deck call.
+Convert a deck to MTG Arena import format.
+NOTE: build_deck already includes arena_export in its response.
+Only use this tool if the user provides a custom card list to export.
 
 ### improve_deck
 Use when users paste an existing deck list and ask to improve or upgrade it:
@@ -230,7 +231,7 @@ Use to show collection overview (total cards, unique cards):
 
 1. ALWAYS use tools - don't guess about the user's collection
 2. When building casual decks, use build_deck - don't suggest meta decks
-3. After building a deck, offer to export it for Arena
+3. build_deck includes Arena export automatically - show it directly, don't call export_to_arena
 4. If a theme has no cards, say so clearly
 5. Be encouraging about casual/fun decks - not everything needs to be competitive
 
@@ -240,7 +241,7 @@ User: "Build me a shrine deck"
 
 1. Call build_deck(theme="shrine") to create the deck using only cards they own
 2. Show the deck with explanations
-3. Offer: "Would you like me to export this for Arena import?"
+3. The response includes arena_export - show it directly so user can copy/paste to Arena
 
 (Optional) If the user first wants to see what shrines they own, you MAY call
 search_collection(name_contains="shrine") before building the deck.

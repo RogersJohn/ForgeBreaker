@@ -655,8 +655,7 @@ async def search_collection_tool(
         raise KnownError(
             kind=FailureKind.NOT_FOUND,
             message=(
-                "You don't have a collection imported yet. "
-                "Please import one to search your cards."
+                "You don't have a collection imported yet. Please import one to search your cards."
             ),
             suggestion="Use the collection import endpoint to upload your collection.",
         )
@@ -772,6 +771,14 @@ async def build_deck_tool(
         defaults=defaults,
     )
 
+    # Generate Arena export inline to avoid separate tool call
+    # This saves one LLM round-trip for the common "export to Arena" follow-up
+    try:
+        arena_export = export_deck_to_arena(deck, card_db)
+    except Exception as e:
+        logger.warning(f"Arena export generation failed: {e}")
+        arena_export = None
+
     # Return structured data only - LLM formats the response
     return {
         "success": True,
@@ -785,6 +792,7 @@ async def build_deck_tool(
         "notes": deck.notes,
         "warnings": deck.warnings,
         "assumptions": assumptions_section,
+        "arena_export": arena_export,
     }
 
 
@@ -821,8 +829,7 @@ async def find_synergies_tool(
         raise KnownError(
             kind=FailureKind.NOT_FOUND,
             message=(
-                "You don't have a collection imported yet. "
-                "Please import one to find synergies."
+                "You don't have a collection imported yet. Please import one to find synergies."
             ),
             suggestion="Use the collection import endpoint to upload your collection.",
         )

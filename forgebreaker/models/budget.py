@@ -25,7 +25,12 @@ from forgebreaker.models.failure import FailureKind, KnownError
 # HARD LIMITS (Constants — NOT Configurable)
 # =============================================================================
 
-MAX_LLM_CALLS_PER_REQUEST = 3
+# Budget for agentic tool-use loop:
+# - Single tool use = 2 calls (invoke + process result)
+# - Two chained tools = 3 calls
+# - Tool + clarification + tool = 4 calls
+# - Buffer for edge cases = 5 calls
+MAX_LLM_CALLS_PER_REQUEST = 5
 MAX_TOKENS_PER_REQUEST = 20_000
 
 

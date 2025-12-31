@@ -27,9 +27,20 @@ from forgebreaker.models.failure import FailureKind
 class TestBudgetConstants:
     """Verify hard limits are defined correctly."""
 
-    def test_max_llm_calls_is_3(self) -> None:
-        """MAX_LLM_CALLS_PER_REQUEST must be 3."""
-        assert MAX_LLM_CALLS_PER_REQUEST == 3
+    def test_max_llm_calls_is_5(self) -> None:
+        """MAX_LLM_CALLS_PER_REQUEST must be 5 for agentic tool-use patterns."""
+        assert MAX_LLM_CALLS_PER_REQUEST == 5
+
+    def test_max_llm_calls_allows_tool_chains(self) -> None:
+        """Budget allows single tool (2 calls) + follow-up tool (2 calls) + buffer."""
+        # Minimum for single tool use
+        assert MAX_LLM_CALLS_PER_REQUEST >= 2, "Must allow at least single tool use"
+
+        # Recommended for tool chaining
+        assert MAX_LLM_CALLS_PER_REQUEST >= 4, "Should allow tool chaining"
+
+        # Current value
+        assert MAX_LLM_CALLS_PER_REQUEST == 5
 
     def test_max_tokens_is_20000(self) -> None:
         """MAX_TOKENS_PER_REQUEST must be 20,000."""
@@ -515,3 +526,39 @@ class TestRealisticScenario:
 
         # Validator should only run once due to memoization
         assert validation_attempts == 1
+
+    def test_budget_sufficient_for_two_tool_chain(self) -> None:
+        """Budget of 5 allows: tool1 invoke + tool1 result + tool2 invoke + response."""
+        budget = RequestBudget()
+
+        # Simulate: invoke tool 1
+        budget.check_call_budget()
+        budget.record_call(input_tokens=3000, output_tokens=200)
+
+        # Simulate: process tool 1 result, invoke tool 2
+        budget.check_call_budget()
+        budget.record_call(input_tokens=3500, output_tokens=200)
+
+        # Simulate: process tool 2 result, final response
+        budget.check_call_budget()
+        budget.record_call(input_tokens=4000, output_tokens=500)
+
+        # Should still have budget remaining
+        assert budget.remaining_calls == 2
+        assert budget.llm_calls_used == 3
+
+    def test_single_tool_use_within_budget(self) -> None:
+        """A single tool use (2 LLM calls) stays well within budget."""
+        budget = RequestBudget()
+
+        # Call 1: Claude decides to use a tool
+        budget.check_call_budget()
+        budget.record_call(input_tokens=2000, output_tokens=150)
+
+        # Call 2: Claude processes tool result and responds
+        budget.check_call_budget()
+        budget.record_call(input_tokens=3000, output_tokens=500)
+
+        assert budget.llm_calls_used == 2
+        assert budget.remaining_calls == 3
+        assert not budget.is_finalized

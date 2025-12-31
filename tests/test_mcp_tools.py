@@ -311,3 +311,44 @@ class TestExecuteTool:
         """Raises ValueError for unknown tool."""
         with pytest.raises(ValueError, match="Unknown tool"):
             await execute_tool(session, "unknown_tool", {})
+
+
+class TestBuildDeckArenaExport:
+    """Tests for build_deck_tool including arena_export."""
+
+    async def test_build_deck_includes_arena_export(
+        self,
+        session: AsyncSession,
+        seeded_db: dict,  # noqa: ARG002
+    ) -> None:
+        """build_deck_tool response includes arena_export field."""
+        from forgebreaker.mcp.tools import (
+            _get_card_db_safe,
+            _get_format_legality_safe,
+            build_deck_tool,
+        )
+
+        card_db = _get_card_db_safe()
+        format_legality = _get_format_legality_safe()
+
+        result = await build_deck_tool(
+            session=session,
+            user_id="user123",
+            theme="aggro",
+            card_db=card_db,
+            format_legality=format_legality,
+        )
+
+        # Should include arena_export field
+        assert "arena_export" in result
+
+        # If deck was built successfully, arena_export should be present
+        if result.get("success"):
+            # arena_export can be None if generation failed, or a string
+            assert result["arena_export"] is None or isinstance(result["arena_export"], str)
+
+            # If we have cards, arena_export should not be None
+            if result.get("total_cards", 0) > 0:
+                assert result["arena_export"] is not None
+                # Arena export should contain deck structure
+                assert len(result["arena_export"]) > 0
