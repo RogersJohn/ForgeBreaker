@@ -8,8 +8,10 @@ Pool is never empty unless truly impossible.
 import pytest
 
 from forgebreaker.filtering.scored_pool import (
+    BASE_SCORE,
     MAX_POOL_SIZE,
     MIN_POOL_SIZE,
+    ScoreBreakdown,
     ScoredCard,
     build_scored_pool,
     score_card,
@@ -309,9 +311,10 @@ class TestNoRetriesNoSilentRelaxations:
 
         # All cards get low scores (no tribe match)
         for card in pool.scored_cards:
-            # No card should have high tribe score
-            if "tribe:NonExistentTribe" in card.breakdown:
-                assert card.breakdown["tribe:NonExistentTribe"] == 0.0
+            # No card should have high tribe score contribution
+            tribe_key = "tribe:NonExistentTribe"
+            tribe_contrib = card.breakdown.preference_contributions.get(tribe_key, 0)
+            assert tribe_contrib == 0  # No match for non-existent tribe
 
 
 class TestScoredCardModel:
@@ -323,9 +326,13 @@ class TestScoredCardModel:
         """
         ScoredCards sort by score descending.
         """
-        high = ScoredCard(name="High", score=0.9)
-        medium = ScoredCard(name="Medium", score=0.5)
-        low = ScoredCard(name="Low", score=0.1)
+        high_breakdown = ScoreBreakdown(base_score=90)
+        medium_breakdown = ScoreBreakdown(base_score=50)
+        low_breakdown = ScoreBreakdown(base_score=10)
+
+        high = ScoredCard(name="High", score=90, breakdown=high_breakdown)
+        medium = ScoredCard(name="Medium", score=50, breakdown=medium_breakdown)
+        low = ScoredCard(name="Low", score=10, breakdown=low_breakdown)
 
         cards = [medium, low, high]
         cards.sort()
@@ -342,8 +349,10 @@ class TestScoredCardModel:
 
         scored = score_card("Goblin Guide", card_db["Goblin Guide"], query)
 
-        # Breakdown includes signal components
-        assert len(scored.breakdown) > 0
+        # Breakdown has base_score and preference_contributions
+        assert scored.breakdown.base_score == BASE_SCORE
+        assert len(scored.breakdown.preference_contributions) > 0
+        assert len(scored.breakdown.inclusion_reasons) > 0
 
 
 class TestPoolOperations:
