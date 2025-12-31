@@ -47,6 +47,9 @@ class FailureKind(str, Enum):
     SERVICE_UNAVAILABLE = "service_unavailable"
     EXTERNAL_API_ERROR = "external_api_error"
 
+    # Internal errors
+    INVARIANT_VIOLATION = "invariant_violation"
+
     # Unknown
     UNKNOWN = "unknown"
 

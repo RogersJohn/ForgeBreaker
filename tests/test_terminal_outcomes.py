@@ -474,15 +474,16 @@ class TestRequestContextInvariant:
         ctx.guard_llm_call()
 
     def test_guard_llm_call_blocks_finalized(self) -> None:
-        """guard_llm_call() raises RuntimeError when finalized."""
+        """guard_llm_call() raises KnownError when finalized."""
         ctx = RequestContext()
         ctx.finalize(TerminalReason.KNOWN_FAILURE, "Test error")
 
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(KnownError) as exc_info:
             ctx.guard_llm_call()
 
-        assert "INVARIANT VIOLATION" in str(exc_info.value)
-        assert "known_failure" in str(exc_info.value)
+        assert exc_info.value.kind == FailureKind.INVARIANT_VIOLATION
+        assert "invariant violation" in str(exc_info.value.message).lower()
+        assert "known_failure" in str(exc_info.value.detail)
 
     def test_finalize_is_idempotent(self) -> None:
         """Calling finalize() multiple times is safe."""
@@ -586,10 +587,10 @@ class TestLLMCallBlocking:
         ctx.finalize(TerminalReason.KNOWN_FAILURE, "Collection/card DB mismatch")
 
         # LLM guard MUST block
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(KnownError) as exc_info:
             ctx.guard_llm_call()
 
-        assert "INVARIANT VIOLATION" in str(exc_info.value)
+        assert exc_info.value.kind == FailureKind.INVARIANT_VIOLATION
         assert ctx.llm_call_count == 0  # No LLM calls made
 
     def test_terminal_tool_error_blocks_llm_guard(self) -> None:
@@ -606,7 +607,7 @@ class TestLLMCallBlocking:
         ctx.finalize(TerminalReason.TOOL_ERROR, "Tool execution failed")
 
         # LLM guard MUST block any subsequent call
-        with pytest.raises(RuntimeError):
+        with pytest.raises(KnownError):
             ctx.guard_llm_call()
 
         # Only 1 LLM call was made (before the failure)
@@ -628,10 +629,11 @@ class TestLLMCallBlocking:
         ctx.finalize(TerminalReason.BUDGET_EXHAUSTED, "Max LLM calls exceeded")
 
         # LLM guard MUST block
-        with pytest.raises(RuntimeError) as exc_info:
+        with pytest.raises(KnownError) as exc_info:
             ctx.guard_llm_call()
 
-        assert "budget_exhausted" in str(exc_info.value)
+        assert exc_info.value.kind == FailureKind.INVARIANT_VIOLATION
+        assert "budget_exhausted" in str(exc_info.value.detail)
 
     def test_successful_request_allows_llm_calls(self) -> None:
         """
@@ -669,7 +671,7 @@ class TestLLMCallBlocking:
         ctx.finalize(TerminalReason.TOOL_RETURNED_ERROR, "No cards found")
 
         # Second guard MUST block
-        with pytest.raises(RuntimeError):
+        with pytest.raises(KnownError):
             ctx.guard_llm_call()
 
         # Only 1 LLM call total
@@ -726,7 +728,7 @@ class TestControlFlowEnforcement:
 
         # The guard would block any attempt to call LLM
         # So building tools/messages/system_prompt would be pointless
-        with pytest.raises(RuntimeError):
+        with pytest.raises(KnownError):
             ctx.guard_llm_call()
 
         # If we reach guard_llm_call(), it means we tried to build a payload

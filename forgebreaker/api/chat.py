@@ -38,7 +38,7 @@ from forgebreaker.models.budget import (
     BudgetExceededError,
     RequestBudget,
 )
-from forgebreaker.models.failure import KnownError, RefusalError
+from forgebreaker.models.failure import FailureKind, KnownError, RefusalError
 
 # =============================================================================
 # TERMINAL OUTCOME CLASSIFICATION
@@ -99,13 +99,18 @@ class RequestContext:
     def guard_llm_call(self) -> None:
         """Guard that MUST be called before every LLM invocation.
 
-        Raises RuntimeError if request is finalized.
+        Raises KnownError if request is finalized.
         This makes it structurally impossible to call LLM after terminal outcome.
         """
         if self.is_finalized:
-            raise RuntimeError(
-                f"INVARIANT VIOLATION: LLM call attempted after terminal outcome. "
-                f"Reason: {self.terminal_reason.value}, Message: {self.terminal_message}"
+            raise KnownError(
+                kind=FailureKind.INVARIANT_VIOLATION,
+                message=(
+                    "Internal invariant violation: LLM call attempted after terminal outcome. "
+                    "This is a bug."
+                ),
+                detail=f"Reason: {self.terminal_reason.value}, Message: {self.terminal_message}",
+                status_code=500,
             )
 
     def record_llm_call(self) -> None:
