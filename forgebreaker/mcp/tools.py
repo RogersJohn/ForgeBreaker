@@ -23,6 +23,7 @@ from forgebreaker.db import (
     meta_deck_to_model,
 )
 from forgebreaker.models.collection import Collection
+from forgebreaker.models.failure import FailureKind, KnownError
 from forgebreaker.models.stress import StressScenario, StressType
 from forgebreaker.services.assumption_surfacing import (
     BuildDeckDefaults,
@@ -735,10 +736,13 @@ async def build_deck_tool(
     db_collection = await get_collection(session, user_id)
 
     if db_collection is None:
-        return {
-            "success": False,
-            "message": "No collection found. Import your collection first.",
-        }
+        # Terminal failure: no collection = no deck building
+        # This is a KnownError that results in zero LLM calls
+        raise KnownError(
+            kind=FailureKind.NOT_FOUND,
+            message="You don't have a collection imported yet. Please import one to build decks.",
+            suggestion="Use the collection import endpoint to upload your MTG Arena collection.",
+        )
 
     collection = collection_to_model(db_collection)
 

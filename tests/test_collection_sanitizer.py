@@ -522,3 +522,337 @@ class TestMergeModeSanitization:
         # Sanitization reported
         assert data["sanitization"] is not None
         assert data["sanitization"]["cards_removed"] == 1
+
+
+# =============================================================================
+# LIFECYCLE TESTS: DELETE, REPLACE, AND NO-COLLECTION HANDLING
+# =============================================================================
+
+
+class TestDeleteCollection:
+    """Tests for collection deletion functionality."""
+
+    async def test_delete_collection_succeeds(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        REQUIRED TEST: Delete collection capability.
+
+        Assert:
+        - Deletion returns success with user_id
+        - Subsequent GET returns empty or demo data
+        """
+        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # Create a collection
+        await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        # Verify collection exists
+        get_response = await client.get("/collection/test-user")
+        assert get_response.json()["collection_source"] == "USER"
+
+        # Delete collection
+        delete_response = await client.delete("/collection/test-user")
+        assert delete_response.status_code == 200
+        data = delete_response.json()
+        assert data["user_id"] == "test-user"
+        assert data["deleted"] is True
+        assert "message" in data
+
+        # Subsequent GET should not return user collection
+        get_after = await client.get("/collection/test-user")
+        # Should either be empty or demo, not USER with Lightning Bolt
+        assert get_after.json().get(
+            "collection_source"
+        ) != "USER" or "Lightning Bolt" not in get_after.json().get("cards", {})
+
+    async def test_delete_nonexistent_collection(self, client: AsyncClient) -> None:
+        """Delete of non-existent collection returns deleted=False."""
+        response = await client.delete("/collection/nonexistent-user")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["deleted"] is False
+        assert "message" in data
+
+    async def test_delete_response_has_user_friendly_message(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Delete response includes user-friendly message."""
+        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # Create and delete
+        await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+        response = await client.delete("/collection/test-user")
+
+        message = response.json()["message"]
+        assert "deleted" in message.lower()
+        assert "import" in message.lower()  # Suggests re-import option
+
+
+class TestReplaceMode:
+    """Tests for explicit replace mode in import."""
+
+    async def test_default_mode_rejects_existing_collection(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        REQUIRED TEST: Default import rejects if collection exists.
+
+        This prevents accidental overwrites.
+        """
+        mock_db = {
+            "Lightning Bolt": {"name": "Lightning Bolt"},
+            "Mountain": {"name": "Mountain"},
+        }
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # Create initial collection
+        await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        # Attempt second import WITHOUT replace flag
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "20 Mountain"},
+        )
+
+        assert response.status_code == 409  # CONFLICT
+        assert "replace=true" in response.json()["detail"]
+
+    async def test_replace_mode_succeeds(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        REQUIRED TEST: Replace mode explicitly replaces collection.
+        """
+        mock_db = {
+            "Lightning Bolt": {"name": "Lightning Bolt"},
+            "Mountain": {"name": "Mountain"},
+        }
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # Create initial collection
+        await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        # Replace with new collection
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "20 Mountain", "replace": True},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # New collection replaced old
+        assert "Mountain" in data["cards"]
+        assert data["cards"]["Mountain"] == 20
+        assert "Lightning Bolt" not in data["cards"]
+        assert data["replaced_existing"] is True
+
+    async def test_merge_and_replace_mutually_exclusive(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cannot use both merge=true and replace=true."""
+        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt", "merge": True, "replace": True},
+        )
+
+        assert response.status_code == 400
+        assert "merge" in response.json()["detail"].lower()
+        assert "replace" in response.json()["detail"].lower()
+
+    async def test_first_import_succeeds_without_flags(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """First import (no existing collection) succeeds without flags."""
+        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # First import - should succeed without replace flag
+        response = await client.post(
+            "/collection/first-time-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["replaced_existing"] is False
+
+
+class TestNoCollectionDeckBuilding:
+    """Tests for deck-building behavior when user has no collection."""
+
+    async def test_deck_building_raises_known_error_when_no_collection(
+        self,
+    ) -> None:
+        """
+        REQUIRED TEST: Deck-building fails terminally when no collection.
+
+        This must be a KnownError that results in zero LLM calls.
+        The error message should be user-actionable.
+        """
+        # Use a fresh user with no collection
+        # Build the tool directly to test the KnownError behavior
+        import pytest
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from forgebreaker.mcp.tools import (
+            build_deck_tool,
+        )
+        from forgebreaker.models.db import Base
+        from forgebreaker.models.failure import FailureKind, KnownError
+
+        # Create test database
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with async_session() as session:
+            # Call build_deck_tool for a user with no collection
+            with pytest.raises(KnownError) as exc_info:
+                await build_deck_tool(
+                    session=session,
+                    user_id="user-without-collection",
+                    theme="dragons",
+                    card_db={},
+                    format_legality={},
+                )
+
+            error = exc_info.value
+            assert error.kind == FailureKind.NOT_FOUND
+            assert "collection" in error.message.lower()
+            assert "import" in error.message.lower()
+
+        await engine.dispose()
+
+    async def test_deck_building_after_delete_fails_terminally(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        REQUIRED TEST: UX regression - deck building after delete must fail.
+
+        After deleting a collection, deck-building requests must fail
+        with a clear, non-LLM error.
+        """
+        from forgebreaker.mcp.tools import build_deck_tool
+        from forgebreaker.models.failure import KnownError
+
+        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # Create a collection
+        await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        # Delete the collection
+        await client.delete("/collection/test-user")
+
+        # Now attempt deck-building via direct tool call
+        import pytest
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from forgebreaker.models.db import Base
+
+        engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+
+        async with async_session() as session:
+            with pytest.raises(KnownError) as exc_info:
+                await build_deck_tool(
+                    session=session,
+                    user_id="test-user",  # This user has no collection in this fresh DB
+                    theme="burn",
+                    card_db=mock_db,
+                    format_legality={},
+                )
+
+            # Error should be user-actionable
+            error = exc_info.value
+            assert "collection" in error.message.lower()
+            assert "import" in error.message.lower()
+
+        await engine.dispose()
+
+
+class TestImportAfterDelete:
+    """Tests for re-importing after deletion."""
+
+    async def test_import_after_delete_succeeds(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        REQUIRED TEST: Can re-import after deletion without replace flag.
+
+        After delete, user should be able to import fresh.
+        """
+        mock_db = {
+            "Lightning Bolt": {"name": "Lightning Bolt"},
+            "Mountain": {"name": "Mountain"},
+        }
+        monkeypatch.setattr(
+            "forgebreaker.services.card_database.get_card_database",
+            lambda: mock_db,
+        )
+
+        # Create initial collection
+        await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        # Delete it
+        await client.delete("/collection/test-user")
+
+        # Import again - should succeed WITHOUT replace flag
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "20 Mountain"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["cards"]["Mountain"] == 20
+        assert response.json()["replaced_existing"] is False

@@ -73,7 +73,13 @@ class CollectionImportRequest(BaseModel):
     )
     merge: bool = Field(
         default=False,
-        description="If true, merge with existing collection (keep max qty)",
+        description="If true, merge with existing collection (keep max qty). "
+        "Cannot be used with replace=true.",
+    )
+    replace: bool = Field(
+        default=False,
+        description="If true, explicitly replace existing collection. "
+        "This is the recommended path when updating. Cannot be used with merge=true.",
     )
 
 
@@ -101,6 +107,10 @@ class ImportResponse(BaseModel):
         default="USER",
         description="Always USER after import (user data replaces demo)",
     )
+    replaced_existing: bool = Field(
+        default=False,
+        description="True if an existing collection was replaced",
+    )
     sanitization: SanitizationInfo | None = Field(
         default=None,
         description="Sanitization info if cards were removed (non-blocking, informational)",
@@ -110,7 +120,12 @@ class ImportResponse(BaseModel):
 class DeleteResponse(BaseModel):
     """Response model for delete operations."""
 
+    user_id: str
     deleted: bool
+    message: str = Field(
+        default="",
+        description="User-friendly message about the deletion",
+    )
 
 
 class CollectionStatsResponse(BaseModel):
@@ -259,10 +274,21 @@ async def delete_user_collection(
     """
     Delete a user's card collection.
 
-    Returns whether a collection was actually deleted.
+    This is an explicit, irreversible operation that:
+    - Removes all cards from the user's collection
+    - Clears associated metadata
+    - Leaves the user with no collection
+
+    After deletion, deck-building will fail until a new collection is imported.
     """
     deleted = await delete_collection(session, user_id)
-    return DeleteResponse(deleted=deleted)
+
+    if deleted:
+        message = "Your collection has been deleted. You can import a new collection at any time."
+    else:
+        message = "No collection found to delete."
+
+    return DeleteResponse(user_id=user_id, deleted=deleted, message=message)
 
 
 @router.post("/{user_id}/import", response_model=ImportResponse)
@@ -279,9 +305,20 @@ async def import_user_collection(
     - CSV: "Card Name",Quantity,Set (MTGGoldfish/DeckStats style)
     - Arena: "4 Lightning Bolt (LEB) 163"
 
-    If merge=true, keeps the maximum quantity for each card
-    between existing and imported collections.
+    Import modes:
+    - Default: Fails if collection exists (to prevent accidental overwrites)
+    - replace=true: Explicitly replaces existing collection (recommended)
+    - merge=true: Merges with existing collection (keeps max qty)
+
+    Note: merge and replace cannot both be true.
     """
+    # Validate mutually exclusive options
+    if request.merge and request.replace:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot use both merge=true and replace=true. Choose one.",
+        )
+
     if not request.text or not request.text.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -297,13 +334,25 @@ async def import_user_collection(
             detail="No valid cards found in import text",
         )
 
+    # Check for existing collection
+    existing = await get_collection(session, user_id)
+    had_existing_collection = existing is not None
+
+    # Handle import modes
+    if had_existing_collection and not request.merge and not request.replace:
+        # Default mode: reject if collection exists
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You already have a collection. Use replace=true to replace it, "
+            "or merge=true to merge with it. To start fresh, delete your "
+            "collection first.",
+        )
+
     # If merge mode, combine with existing collection
-    if request.merge:
-        existing = await get_collection(session, user_id)
-        if existing:
-            existing_model = collection_to_model(existing)
-            for name, qty in existing_model.cards.items():
-                parsed_cards[name] = max(parsed_cards.get(name, 0), qty)
+    if request.merge and existing:
+        existing_model = collection_to_model(existing)
+        for name, qty in existing_model.cards.items():
+            parsed_cards[name] = max(parsed_cards.get(name, 0), qty)
 
     # Sanitize collection: remove cards not in card database
     # This happens ONCE at import time, not at request time
@@ -314,14 +363,16 @@ async def import_user_collection(
         # Card database available - use sanitized cards
         cards_to_save = sanitization_result.sanitized_cards
 
-        # Build user message if cards were removed
+        # Build user message if cards were removed (updated message per spec)
         if sanitization_result.had_removals:
-            user_message = sanitization_result.get_user_message()
-            if user_message:
-                sanitization_info = SanitizationInfo(
-                    cards_removed=sanitization_result.removed_unique_count,
-                    message=user_message,
-                )
+            sanitization_info = SanitizationInfo(
+                cards_removed=sanitization_result.removed_unique_count,
+                message=(
+                    "We cleaned up your collection by removing cards that aren't "
+                    "supported by the current card database. You can re-import "
+                    "your collection at any time if you update it."
+                ),
+            )
     else:
         # Card database unavailable - save as-is (request-time guard is safety net)
         cards_to_save = parsed_cards
@@ -334,7 +385,7 @@ async def import_user_collection(
             "All imported cards are not recognized by the card database.",
         )
 
-    # Save the sanitized collection
+    # Save the sanitized collection (replaces any existing)
     db_collection = await update_collection_cards(session, user_id, cards_to_save)
     model = collection_to_model(db_collection)
 
@@ -344,6 +395,7 @@ async def import_user_collection(
         total_cards=model.total_cards(),
         cards=model.cards,
         collection_source="USER",
+        replaced_existing=had_existing_collection and request.replace,
         sanitization=sanitization_info,
     )
 
