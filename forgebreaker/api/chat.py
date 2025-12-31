@@ -24,6 +24,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from forgebreaker.config import settings
 from forgebreaker.db.database import get_session
 from forgebreaker.mcp.tools import TOOL_DEFINITIONS, execute_tool
+from forgebreaker.models.budget import (
+    MAX_LLM_CALLS_PER_REQUEST,
+    MAX_TOKENS_PER_REQUEST,
+    BudgetExceededError,
+    RequestBudget,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +247,11 @@ async def chat(
     Sends messages to Claude with access to deck and collection tools.
     Claude can look up collection stats, meta decks, and calculate
     what cards are needed for specific decks.
+
+    Budget enforcement (PR 5):
+    - Max LLM calls: MAX_LLM_CALLS_PER_REQUEST (hard cap)
+    - Max tokens: MAX_TOKENS_PER_REQUEST (hard cap)
+    - Exceedance is terminal — no retries, no fallback
     """
     if not settings.anthropic_api_key:
         raise HTTPException(
@@ -258,61 +269,85 @@ async def chat(
     tools = _get_anthropic_tools()
     tool_calls_made: list[dict[str, Any]] = []
 
-    # Loop to handle tool calls
-    max_iterations = 5
-    for _ in range(max_iterations):
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=2048,
-            system=SYSTEM_PROMPT,
-            tools=tools,
-            messages=messages,
-        )
-
-        # Record token usage metrics (PR 4)
-        if response.usage:
-            _record_token_usage(
-                input_tokens=response.usage.input_tokens,
-                output_tokens=response.usage.output_tokens,
-                feature_flag_enabled=settings.use_filtered_candidate_pool,
-            )
-
-        # Check if Claude wants to use tools
-        tool_use_blocks = [block for block in response.content if isinstance(block, ToolUseBlock)]
-
-        if not tool_use_blocks:
-            # No tool calls, extract text response
-            text_content = ""
-            for block in response.content:
-                if isinstance(block, TextBlock):
-                    text_content += block.text
-
-            return ChatResponse(
-                message=ChatMessage(role="assistant", content=text_content),
-                tool_calls=tool_calls_made,
-            )
-
-        # Process tool calls with server-injected user_id
-        tool_results = await _process_tool_calls(session, tool_use_blocks, request.user_id)
-
-        # Record tool calls for response
-        for block in tool_use_blocks:
-            tool_calls_made.append(
-                {
-                    "name": block.name,
-                    "input": cast(dict[str, Any], block.input),
-                }
-            )
-
-        # Add assistant response and tool results to messages
-        messages.append({"role": "assistant", "content": response.content})
-        messages.append({"role": "user", "content": tool_results})
-
-    # Max iterations reached
-    return ChatResponse(
-        message=ChatMessage(
-            role="assistant",
-            content="I apologize, but I'm having trouble completing this request.",
-        ),
-        tool_calls=tool_calls_made,
+    # Initialize request budget (PR 5)
+    budget = RequestBudget(
+        max_llm_calls=MAX_LLM_CALLS_PER_REQUEST,
+        max_tokens=MAX_TOKENS_PER_REQUEST,
     )
+
+    # Loop to handle tool calls — budget enforced
+    try:
+        while True:
+            # BUDGET CHECK: Before each LLM call
+            budget.check_call_budget()
+
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=2048,
+                system=SYSTEM_PROMPT,
+                tools=tools,
+                messages=messages,
+            )
+
+            # BUDGET RECORD: After each LLM call
+            input_tokens = response.usage.input_tokens if response.usage else 0
+            output_tokens = response.usage.output_tokens if response.usage else 0
+            budget.record_call(input_tokens, output_tokens)
+
+            # Record token usage metrics (PR 4)
+            if response.usage:
+                _record_token_usage(
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    feature_flag_enabled=settings.use_filtered_candidate_pool,
+                )
+
+            # Check if Claude wants to use tools
+            tool_use_blocks = [
+                block for block in response.content if isinstance(block, ToolUseBlock)
+            ]
+
+            if not tool_use_blocks:
+                # No tool calls, extract text response
+                text_content = ""
+                for block in response.content:
+                    if isinstance(block, TextBlock):
+                        text_content += block.text
+
+                return ChatResponse(
+                    message=ChatMessage(role="assistant", content=text_content),
+                    tool_calls=tool_calls_made,
+                )
+
+            # Process tool calls with server-injected user_id
+            tool_results = await _process_tool_calls(session, tool_use_blocks, request.user_id)
+
+            # Record tool calls for response
+            for block in tool_use_blocks:
+                tool_calls_made.append(
+                    {
+                        "name": block.name,
+                        "input": cast(dict[str, Any], block.input),
+                    }
+                )
+
+            # Add assistant response and tool results to messages
+            messages.append({"role": "assistant", "content": response.content})
+            messages.append({"role": "user", "content": tool_results})
+
+    except BudgetExceededError as e:
+        # Budget exceeded — terminal failure, no retry
+        logger.warning(
+            "budget_exceeded",
+            extra={
+                "limit_type": e.limit_type,
+                "used": e.used,
+                "limit": e.limit,
+                "llm_calls": budget.llm_calls_used,
+                "tokens": budget.tokens_used,
+            },
+        )
+        raise HTTPException(
+            status_code=e.status_code,
+            detail=e.message,
+        ) from e

@@ -41,6 +41,7 @@ class FailureKind(str, Enum):
     CARD_NAME_LEAKAGE = "card_name_leakage"
     VALIDATION_FAILED = "validation_failed"
     FORMAT_ILLEGAL = "format_illegal"
+    BUDGET_EXCEEDED = "budget_exceeded"
 
     # Service failures
     SERVICE_UNAVAILABLE = "service_unavailable"

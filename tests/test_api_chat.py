@@ -76,6 +76,8 @@ class TestChatEndpoint:
 
         mock_response = MagicMock()
         mock_response.content = [mock_text_block]
+        mock_response.usage.input_tokens = 100
+        mock_response.usage.output_tokens = 50
 
         with (
             patch("forgebreaker.api.chat.settings") as mock_settings,

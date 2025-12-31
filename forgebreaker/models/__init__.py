@@ -5,6 +5,12 @@ from forgebreaker.models.allowed_cards import (
     validate_card_in_allowed_set,
     validate_card_list,
 )
+from forgebreaker.models.budget import (
+    MAX_LLM_CALLS_PER_REQUEST,
+    MAX_TOKENS_PER_REQUEST,
+    BudgetExceededError,
+    RequestBudget,
+)
 from forgebreaker.models.card import Card
 from forgebreaker.models.clarification import (
     DEFAULT_MAX_CLARIFICATIONS,
@@ -40,6 +46,7 @@ from forgebreaker.models.validated_deck import (
 __all__ = [
     "AllowedCardSet",
     "ApiResponse",
+    "BudgetExceededError",
     "Card",
     "CardNotAllowedError",
     "ClarificationDecision",
@@ -49,6 +56,8 @@ __all__ = [
     "Collection",
     "DEFAULT_MAX_CLARIFICATIONS",
     "DeckDistance",
+    "MAX_LLM_CALLS_PER_REQUEST",
+    "MAX_TOKENS_PER_REQUEST",
     "DeckValidationError",
     "FailureDetail",
     "FailureKind",
@@ -57,6 +66,7 @@ __all__ = [
     "OutcomeType",
     "RankedDeck",
     "RefusalError",
+    "RequestBudget",
     "STANDARD_MESSAGES",
     "STANDARD_SUGGESTIONS",
     "ValidatedDeck",
