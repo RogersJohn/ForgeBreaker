@@ -25,6 +25,10 @@ from forgebreaker.db import (
 from forgebreaker.models.collection import Collection
 from forgebreaker.models.stress import StressScenario, StressType
 from forgebreaker.models.validated_deck import ValidatedDeck, create_validated_deck
+from forgebreaker.services.assumption_surfacing import (
+    BuildDeckDefaults,
+    format_build_deck_assumptions,
+)
 from forgebreaker.services.card_database import (
     get_card_database,
     get_format_legality,
@@ -900,6 +904,9 @@ async def build_deck_tool(
     colors: list[str] | None = None,
     format_name: str = "standard",
     include_cards: list[str] | None = None,
+    *,
+    format_explicit: bool = False,
+    colors_explicit: bool = False,
 ) -> dict[str, Any]:
     """
     Build a deck from user's collection around a theme.
@@ -913,6 +920,8 @@ async def build_deck_tool(
         colors: Optional color restriction
         format_name: Format for legality
         include_cards: Cards that must be included
+        format_explicit: Whether format was explicitly provided (not defaulted)
+        colors_explicit: Whether colors were explicitly provided (not defaulted)
 
     Returns:
         Dict with built deck information
@@ -952,6 +961,17 @@ async def build_deck_tool(
         logger.error(f"Card name leakage detected in build_deck: {e}")
         return create_refusal_response(e)
 
+    # Generate assumptions section for UX transparency (PR 6)
+    defaults = BuildDeckDefaults(
+        format_defaulted=not format_explicit,
+        colors_defaulted=not colors_explicit,
+    )
+    assumptions_section = format_build_deck_assumptions(
+        format_name=format_name,
+        colors=colors,
+        defaults=defaults,
+    )
+
     return {
         "success": True,
         "deck_name": deck.name,
@@ -964,6 +984,7 @@ async def build_deck_tool(
         "notes": deck.notes,
         "warnings": deck.warnings,
         "formatted": guarded_formatted,
+        "assumptions": assumptions_section,
     }
 
 
@@ -1505,6 +1526,8 @@ async def execute_tool(
             colors=arguments.get("colors"),
             format_name=arguments.get("format", "standard"),
             include_cards=arguments.get("include_cards"),
+            format_explicit="format" in arguments,
+            colors_explicit="colors" in arguments,
         )
     elif tool_name == "find_synergies":
         card_db = _get_card_db_safe()
