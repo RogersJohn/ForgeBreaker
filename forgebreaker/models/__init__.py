@@ -42,6 +42,7 @@ from forgebreaker.models.failure import (
     finalize_response,
     is_finalized,
 )
+from forgebreaker.models.owned_card_pool import OwnedCardPool, build_owned_pool
 from forgebreaker.models.validated_deck import (
     DeckValidationError,
     ValidatedDeck,
@@ -72,7 +73,9 @@ __all__ = [
     "MetaDeck",
     "OutcomeType",
     "OwnedCard",
+    "OwnedCardPool",
     "RankedDeck",
+    "build_owned_pool",
     "RefusalError",
     "RequestBudget",
     "STANDARD_MESSAGES",
