@@ -24,6 +24,7 @@ from forgebreaker.services.card_database import (
     get_card_rarity,
     get_card_type,
 )
+from forgebreaker.services.collection_sanitizer import try_sanitize_collection
 from forgebreaker.services.demo_collection import (
     demo_collection_available,
     get_demo_collection,
@@ -76,6 +77,19 @@ class CollectionImportRequest(BaseModel):
     )
 
 
+class SanitizationInfo(BaseModel):
+    """Information about collection sanitization during import."""
+
+    cards_removed: int = Field(
+        ...,
+        description="Number of unique cards removed during sanitization",
+    )
+    message: str = Field(
+        ...,
+        description="User-friendly message about sanitization",
+    )
+
+
 class ImportResponse(BaseModel):
     """Response model for collection import."""
 
@@ -86,6 +100,10 @@ class ImportResponse(BaseModel):
     collection_source: CollectionSource = Field(
         default="USER",
         description="Always USER after import (user data replaces demo)",
+    )
+    sanitization: SanitizationInfo | None = Field(
+        default=None,
+        description="Sanitization info if cards were removed (non-blocking, informational)",
     )
 
 
@@ -287,16 +305,46 @@ async def import_user_collection(
             for name, qty in existing_model.cards.items():
                 parsed_cards[name] = max(parsed_cards.get(name, 0), qty)
 
-    # Save the collection
-    db_collection = await update_collection_cards(session, user_id, parsed_cards)
+    # Sanitize collection: remove cards not in card database
+    # This happens ONCE at import time, not at request time
+    sanitization_info: SanitizationInfo | None = None
+    sanitization_result = try_sanitize_collection(parsed_cards)
+
+    if sanitization_result is not None:
+        # Card database available - use sanitized cards
+        cards_to_save = sanitization_result.sanitized_cards
+
+        # Build user message if cards were removed
+        if sanitization_result.had_removals:
+            user_message = sanitization_result.get_user_message()
+            if user_message:
+                sanitization_info = SanitizationInfo(
+                    cards_removed=sanitization_result.removed_unique_count,
+                    message=user_message,
+                )
+    else:
+        # Card database unavailable - save as-is (request-time guard is safety net)
+        cards_to_save = parsed_cards
+
+    # Reject if all cards were removed
+    if not cards_to_save:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No valid cards found after sanitization. "
+            "All imported cards are not recognized by the card database.",
+        )
+
+    # Save the sanitized collection
+    db_collection = await update_collection_cards(session, user_id, cards_to_save)
     model = collection_to_model(db_collection)
 
     return ImportResponse(
         user_id=user_id,
-        cards_imported=len(parsed_cards),
+        cards_imported=len(cards_to_save),
         total_cards=model.total_cards(),
         cards=model.cards,
         collection_source="USER",
+        sanitization=sanitization_info,
     )
 
 
