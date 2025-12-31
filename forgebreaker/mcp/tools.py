@@ -650,10 +650,16 @@ async def search_collection_tool(
     db_collection = await get_collection(session, user_id)
 
     if db_collection is None:
-        return {
-            "results": [],
-            "message": "No collection found. Import your collection first.",
-        }
+        # Terminal failure: no collection = cannot search
+        # This is a KnownError that results in zero additional LLM calls
+        raise KnownError(
+            kind=FailureKind.NOT_FOUND,
+            message=(
+                "You don't have a collection imported yet. "
+                "Please import one to search your cards."
+            ),
+            suggestion="Use the collection import endpoint to upload your collection.",
+        )
 
     collection = collection_to_model(db_collection)
 
@@ -810,10 +816,16 @@ async def find_synergies_tool(
     db_collection = await get_collection(session, user_id)
 
     if db_collection is None:
-        return {
-            "found": False,
-            "message": "No collection found. Import your collection first.",
-        }
+        # Terminal failure: no collection = cannot find synergies
+        # This is a KnownError that results in zero additional LLM calls
+        raise KnownError(
+            kind=FailureKind.NOT_FOUND,
+            message=(
+                "You don't have a collection imported yet. "
+                "Please import one to find synergies."
+            ),
+            suggestion="Use the collection import endpoint to upload your collection.",
+        )
 
     collection = collection_to_model(db_collection)
 
@@ -950,10 +962,16 @@ async def improve_deck_tool(
     db_collection = await get_collection(session, user_id)
 
     if db_collection is None:
-        return {
-            "success": False,
-            "message": "No collection found. Import your collection first.",
-        }
+        # Terminal failure: no collection = cannot suggest improvements
+        # This is a KnownError that results in zero additional LLM calls
+        raise KnownError(
+            kind=FailureKind.NOT_FOUND,
+            message=(
+                "You don't have a collection imported yet. "
+                "Please import one to get deck improvements."
+            ),
+            suggestion="Use the collection import endpoint to upload your collection.",
+        )
 
     collection = collection_to_model(db_collection)
 
