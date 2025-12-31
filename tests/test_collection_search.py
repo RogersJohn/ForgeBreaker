@@ -1,6 +1,7 @@
 import pytest
 
 from forgebreaker.models.collection import Collection
+from forgebreaker.models.failure import FailureKind, KnownError
 from forgebreaker.services.collection_search import (
     CardSearchResult,
     format_search_results,
@@ -285,15 +286,18 @@ class TestSearchCollection:
         quantities = [r.quantity for r in results]
         assert quantities == sorted(quantities, reverse=True)
 
-    def test_card_not_in_database_skipped(
+    def test_card_not_in_database_raises_error(
         self, sample_collection: Collection, sample_card_db: dict[str, dict]
     ) -> None:
+        """Card in collection but not in DB raises terminal KnownError."""
         # Add card that's not in the database
         sample_collection.cards["Unknown Card XYZ"] = 4
-        results = search_collection(sample_collection, sample_card_db)
 
-        names = [r.name for r in results]
-        assert "Unknown Card XYZ" not in names
+        with pytest.raises(KnownError) as exc_info:
+            search_collection(sample_collection, sample_card_db)
+
+        assert exc_info.value.kind == FailureKind.VALIDATION_FAILED
+        assert "Unknown Card XYZ" in str(exc_info.value.detail)
 
 
 class TestFormatSearchResults:
@@ -1014,14 +1018,15 @@ class TestPowerToughnessFiltering:
 
 
 class TestCardsNotInDatabase:
-    """Tests for handling cards not found in the database."""
+    """Tests for handling cards not found in the database.
 
-    def test_missing_cards_logged(
-        self, sample_card_db: dict[str, dict], caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """Cards in collection but not in DB should be logged."""
-        import logging
+    INVARIANT: Cards in collection but not in DB is a TERMINAL FAILURE.
+    This is a data-integrity error that cannot be resolved by LLM retries.
+    The system must fail fast before any LLM call to prevent budget exhaustion.
+    """
 
+    def test_missing_cards_raises_known_error(self, sample_card_db: dict[str, dict]) -> None:
+        """Cards in collection but not in DB raises KnownError (terminal failure)."""
         collection = Collection(
             cards={
                 "Lightning Bolt": 4,  # In DB
@@ -1030,25 +1035,37 @@ class TestCardsNotInDatabase:
             }
         )
 
-        with caplog.at_level(logging.WARNING):
-            results = search_collection(collection, sample_card_db)
+        with pytest.raises(KnownError) as exc_info:
+            search_collection(collection, sample_card_db)
 
-        # Should still find cards that are in DB
-        assert len(results) == 1
-        assert results[0].name == "Lightning Bolt"
+        # Verify terminal failure classification
+        assert exc_info.value.kind == FailureKind.VALIDATION_FAILED
 
-        # Should log warning about missing cards
-        assert "cards in collection but not in card database" in caplog.text
+        # Verify user-actionable error message
+        assert "not present in the card database" in exc_info.value.message
+        assert "Mystery Card Alpha" in str(exc_info.value.detail)
 
-    def test_all_cards_missing_returns_empty(self, caplog: pytest.LogCaptureFixture) -> None:
-        """If all collection cards are missing from DB, return empty and log."""
-        import logging
-
+    def test_all_cards_missing_raises_known_error(self) -> None:
+        """If all collection cards are missing from DB, raises KnownError."""
         card_db = {"Some Other Card": {"type_line": "Instant", "colors": ["R"]}}
         collection = Collection(cards={"Unknown Card 1": 4, "Unknown Card 2": 2})
 
-        with caplog.at_level(logging.WARNING):
-            results = search_collection(collection, card_db)
+        with pytest.raises(KnownError) as exc_info:
+            search_collection(collection, card_db)
 
-        assert results == []
-        assert "cards in collection but not in card database" in caplog.text
+        assert exc_info.value.kind == FailureKind.VALIDATION_FAILED
+        assert "Unknown Card 1" in str(exc_info.value.detail)
+
+    def test_missing_card_error_has_suggestion(self, sample_card_db: dict[str, dict]) -> None:
+        """KnownError includes actionable suggestion for user."""
+        collection = Collection(cards={"Nonexistent Card": 1})
+
+        with pytest.raises(KnownError) as exc_info:
+            search_collection(collection, sample_card_db)
+
+        # Verify suggestion helps user resolve the issue
+        assert exc_info.value.suggestion is not None
+        assert (
+            "update" in exc_info.value.suggestion.lower()
+            or "check" in exc_info.value.suggestion.lower()
+        )

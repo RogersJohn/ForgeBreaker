@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from forgebreaker.models.collection import Collection
+from forgebreaker.models.failure import FailureKind, KnownError
 
 logger = logging.getLogger(__name__)
 
@@ -264,12 +265,18 @@ def search_collection(
             )
         )
 
-    # Log cards not found in database (helps diagnose import/database sync issues)
+    # TERMINAL FAILURE: Cards in collection but not in database
+    # This is a data-integrity error that cannot be resolved by LLM retries.
+    # Fail fast before any LLM call to prevent budget exhaustion.
     if cards_not_in_db:
-        logger.warning(
-            "Found %d cards in collection but not in card database: %s",
-            len(cards_not_in_db),
-            cards_not_in_db[:10],  # Log first 10 to avoid spam
+        raise KnownError(
+            kind=FailureKind.VALIDATION_FAILED,
+            message=(
+                "Your collection contains cards that are not present in the card database. "
+                "Please update the card database or remove unsupported cards from the collection."
+            ),
+            detail=f"Missing {len(cards_not_in_db)} cards: {cards_not_in_db[:10]}",
+            suggestion="Run the card database update job or check for typos in card names.",
         )
 
     # Sort by quantity descending, then name, then truncate to max_results

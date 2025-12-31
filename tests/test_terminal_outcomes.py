@@ -326,3 +326,122 @@ class TestTerminalReasonDocumentation:
             else:
                 # All other reasons are terminal
                 assert reason.value != "none"
+
+
+# =============================================================================
+# COLLECTION/CARD DB MISMATCH REGRESSION TESTS
+# =============================================================================
+
+
+class TestCollectionCardDbMismatchTerminal:
+    """
+    Regression tests for the collection/card DB mismatch terminal failure.
+
+    INVARIANT: Cards in collection but not in database is a data-integrity
+    error that MUST be terminal. No retries are possible.
+
+    This prevents budget exhaustion on unrecoverable errors.
+    """
+
+    @pytest.mark.asyncio
+    async def test_collection_mismatch_is_known_failure(
+        self,
+        mock_session: AsyncMock,
+        mock_tool_call: MagicMock,
+    ) -> None:
+        """
+        Collection/card DB mismatch raises KnownError which is terminal.
+
+        The system must:
+        1. Detect the data-integrity error
+        2. Classify as KNOWN_FAILURE
+        3. Terminate without retries
+        """
+
+        # Simulate the mismatch error propagating through tool execution
+        with patch(
+            "forgebreaker.api.chat.execute_tool",
+            side_effect=KnownError(
+                kind=FailureKind.VALIDATION_FAILED,
+                message="Your collection contains cards not present in the card database.",
+                detail="Missing 2 cards: ['Mystery Card Alpha', 'Mystery Card Beta']",
+            ),
+        ):
+            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+
+        assert result.is_terminal is True
+        assert result.terminal_reason == TerminalReason.KNOWN_FAILURE
+        assert "not present in the card database" in result.error_message
+
+    @pytest.mark.asyncio
+    async def test_mismatch_error_prevents_retries(
+        self,
+        mock_session: AsyncMock,
+        mock_tool_call: MagicMock,
+    ) -> None:
+        """
+        After mismatch error, no retry is attempted.
+
+        Contract: Terminal outcome means NO SECOND TOOL CALL.
+        """
+        with patch(
+            "forgebreaker.api.chat.execute_tool",
+            side_effect=KnownError(
+                kind=FailureKind.VALIDATION_FAILED,
+                message="Collection contains cards not in database.",
+            ),
+        ):
+            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+
+        # Terminal means is_terminal=True, so chat loop will disable tools
+        assert result.is_terminal is True
+
+        # Result contains error for Claude to format final response
+        assert len(result.results) == 1
+        content = json.loads(result.results[0]["content"])
+        assert "error" in content
+        assert content["kind"] == "validation_failed"
+
+    def test_mismatch_detected_at_service_layer(self) -> None:
+        """
+        The mismatch is detected at the service layer, before any LLM formatting.
+
+        This is critical: the error is raised DURING tool execution,
+        not after multiple LLM retries.
+        """
+        from forgebreaker.models.collection import Collection
+        from forgebreaker.services.collection_search import search_collection
+
+        collection = Collection(cards={"Nonexistent Card": 4})
+        card_db = {"Real Card": {"type_line": "Instant", "colors": ["R"]}}
+
+        with pytest.raises(KnownError) as exc_info:
+            search_collection(collection, card_db)
+
+        # Error detected immediately, no LLM involved yet
+        assert exc_info.value.kind == FailureKind.VALIDATION_FAILED
+        assert "Nonexistent Card" in str(exc_info.value.detail)
+
+    def test_mismatch_error_is_user_actionable(self) -> None:
+        """
+        The error message helps users resolve the issue.
+
+        A terminal failure must still be helpful, not just blocking.
+        """
+        from forgebreaker.models.collection import Collection
+        from forgebreaker.services.collection_search import search_collection
+
+        collection = Collection(cards={"Mystery Card": 1})
+        # Non-empty DB with different cards (empty DB has different code path)
+        card_db = {"Some Other Card": {"type_line": "Instant", "colors": ["R"]}}
+
+        with pytest.raises(KnownError) as exc_info:
+            search_collection(collection, card_db)
+
+        # Message tells user what to do
+        error = exc_info.value
+        assert (
+            "update" in (error.suggestion or "").lower()
+            or "check" in (error.suggestion or "").lower()
+        )
+        assert error.detail is not None  # Shows which cards are missing
