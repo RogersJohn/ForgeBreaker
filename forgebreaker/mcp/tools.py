@@ -24,7 +24,6 @@ from forgebreaker.db import (
 )
 from forgebreaker.models.collection import Collection
 from forgebreaker.models.stress import StressScenario, StressType
-from forgebreaker.models.validated_deck import ValidatedDeck, create_validated_deck
 from forgebreaker.services.assumption_surfacing import (
     BuildDeckDefaults,
     format_build_deck_assumptions,
@@ -33,30 +32,15 @@ from forgebreaker.services.card_database import (
     get_card_database,
     get_format_legality,
 )
-from forgebreaker.services.card_name_guard import (
-    CardNameLeakageError,
-    create_refusal_response,
-    guard_output,
-)
-from forgebreaker.services.collection_search import (
-    format_search_results,
-    search_collection,
-)
+from forgebreaker.services.collection_search import search_collection
 from forgebreaker.services.deck_builder import (
     BuiltDeck,
     DeckBuildRequest,
     build_deck,
     export_deck_to_arena,
-    format_built_deck,
 )
-from forgebreaker.services.deck_improver import (
-    analyze_and_improve_deck,
-    format_deck_analysis,
-)
-from forgebreaker.services.synergy_finder import (
-    find_synergies,
-    format_synergy_results,
-)
+from forgebreaker.services.deck_improver import analyze_and_improve_deck
+from forgebreaker.services.synergy_finder import find_synergies
 
 logger = logging.getLogger(__name__)
 
@@ -88,45 +72,6 @@ def _get_format_legality_safe() -> dict[str, set[str]]:
         _format_legality_cache = get_format_legality(card_db)
         return _format_legality_cache
     return {}
-
-
-def _guard_formatted_output(
-    formatted: str,
-    validated_deck: ValidatedDeck,
-    additional_allowed: frozenset[str] | None = None,
-) -> str:
-    """
-    Guard formatted output against card name leakage.
-
-    This is the FINAL barrier before returning any formatted output
-    containing card names to the user.
-
-    Args:
-        formatted: The formatted output string
-        validated_deck: Authoritative source of allowed card names
-        additional_allowed: Extra allowed names (e.g., full collection)
-
-    Returns:
-        The formatted string if valid
-
-    Raises:
-        CardNameLeakageError: If unvalidated card names detected
-    """
-    return guard_output(formatted, validated_deck, additional_allowed)
-
-
-def _create_validated_deck_from_built(
-    deck: BuiltDeck,
-    format_name: str = "",
-) -> ValidatedDeck:
-    """Create a ValidatedDeck from a BuiltDeck."""
-    return create_validated_deck(
-        maindeck=deck.cards,
-        sideboard={},  # BuiltDeck doesn't have sideboard
-        name=deck.name,
-        format_name=format_name,
-        validation_source="build_deck",
-    )
 
 
 @dataclass
@@ -733,31 +678,10 @@ async def search_collection_tool(
         min_quantity=min_quantity,
     )
 
-    formatted = format_search_results(results, include_quantities=True)
-
     # Calculate totals
     total_cards = sum(r.quantity for r in results)
 
-    # Create validated deck from search results
-    # All results are from collection (trusted source), but guard for defense in depth
-    search_cards = {r.name: r.quantity for r in results}
-    validated_deck = create_validated_deck(
-        maindeck=search_cards,
-        name="Collection Search",
-        validation_source="search_collection",
-    )
-
-    # Guard formatted output
-    try:
-        guarded_formatted = _guard_formatted_output(
-            formatted,
-            validated_deck,
-            additional_allowed=frozenset(collection.cards.keys()),
-        )
-    except CardNameLeakageError as e:
-        logger.error(f"Card name leakage detected in search_collection: {e}")
-        return create_refusal_response(e)
-
+    # Return structured data only - LLM formats the response
     return {
         "unique_count": len(results),
         "total_cards": total_cards,
@@ -774,7 +698,6 @@ async def search_collection_tool(
             }
             for r in results
         ],
-        "formatted": guarded_formatted,
     }
 
 
@@ -827,22 +750,6 @@ async def build_deck_tool(
     )
 
     deck = build_deck(request, collection, card_db, format_legality)
-    formatted = format_built_deck(deck)
-
-    # Create validated deck for output guard
-    validated_deck = _create_validated_deck_from_built(deck, format_name)
-
-    # Guard formatted output against card name leakage
-    # Allow collection cards as additional context (for notes/warnings)
-    try:
-        guarded_formatted = _guard_formatted_output(
-            formatted,
-            validated_deck,
-            additional_allowed=frozenset(collection.cards.keys()),
-        )
-    except CardNameLeakageError as e:
-        logger.error(f"Card name leakage detected in build_deck: {e}")
-        return create_refusal_response(e)
 
     # Generate assumptions section for UX transparency (PR 6)
     defaults = BuildDeckDefaults(
@@ -855,6 +762,7 @@ async def build_deck_tool(
         defaults=defaults,
     )
 
+    # Return structured data only - LLM formats the response
     return {
         "success": True,
         "deck_name": deck.name,
@@ -866,7 +774,6 @@ async def build_deck_tool(
         "cards": deck.cards,
         "notes": deck.notes,
         "warnings": deck.warnings,
-        "formatted": guarded_formatted,
         "assumptions": assumptions_section,
     }
 
@@ -934,30 +841,7 @@ async def find_synergies_tool(
             "message": f"Card '{card_name}' not found in database.",
         }
 
-    formatted = format_synergy_results(result)
-
-    # Create validated deck from synergy results
-    # Include source card and all synergistic cards
-    synergy_cards = {name: qty for name, qty, _ in result.synergistic_cards}
-    synergy_cards[result.source_card] = 1  # Include source card
-    validated_deck = create_validated_deck(
-        maindeck=synergy_cards,
-        name=f"Synergies for {result.source_card}",
-        format_name=format_name,
-        validation_source="find_synergies",
-    )
-
-    # Guard formatted output
-    try:
-        guarded_formatted = _guard_formatted_output(
-            formatted,
-            validated_deck,
-            additional_allowed=frozenset(collection.cards.keys()),
-        )
-    except CardNameLeakageError as e:
-        logger.error(f"Card name leakage detected in find_synergies: {e}")
-        return create_refusal_response(e)
-
+    # Return structured data only - LLM formats the response
     return {
         "found": True,
         "source_card": result.source_card,
@@ -967,7 +851,6 @@ async def find_synergies_tool(
             for name, qty, reason in result.synergistic_cards
         ],
         "count": len(result.synergistic_cards),
-        "formatted": guarded_formatted,
     }
 
 
@@ -1092,39 +975,7 @@ async def improve_deck_tool(
         max_suggestions=max_suggestions,
     )
 
-    formatted = format_deck_analysis(analysis)
-
-    # Build validated deck from analysis
-    # Include: original deck cards + all suggested additions/removals
-    validated_cards: dict[str, int] = {}
-
-    # Add cards from card_details (the analyzed deck)
-    for card in analysis.card_details:
-        validated_cards[card.name] = 1
-
-    # Add all suggestion cards (both remove and add)
-    for suggestion in analysis.suggestions:
-        validated_cards[suggestion.remove_card] = suggestion.remove_quantity
-        validated_cards[suggestion.add_card] = suggestion.add_quantity
-
-    validated_deck = create_validated_deck(
-        maindeck=validated_cards,
-        name="Deck Analysis",
-        format_name=format_name,
-        validation_source="improve_deck",
-    )
-
-    # Guard formatted output
-    try:
-        guarded_formatted = _guard_formatted_output(
-            formatted,
-            validated_deck,
-            additional_allowed=frozenset(collection.cards.keys()),
-        )
-    except CardNameLeakageError as e:
-        logger.error(f"Card name leakage detected in improve_deck: {e}")
-        return create_refusal_response(e)
-
+    # Return structured data only - LLM formats the response
     return {
         "success": True,
         "total_cards": analysis.total_cards,
@@ -1142,7 +993,6 @@ async def improve_deck_tool(
         ],
         "general_advice": analysis.general_advice,
         "warnings": analysis.warnings,
-        "formatted": guarded_formatted,
     }
 
 
