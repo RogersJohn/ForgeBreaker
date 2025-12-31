@@ -17,14 +17,17 @@ from forgebreaker.db import (
     update_collection_cards,
 )
 from forgebreaker.db.database import get_session
+from forgebreaker.models.canonical_card import InventoryCard
+from forgebreaker.models.failure import KnownError
+from forgebreaker.parsers.arena_export import parse_arena_to_inventory
 from forgebreaker.parsers.collection_import import parse_collection_text
+from forgebreaker.services.canonical_card_resolver import CanonicalCardResolver
 from forgebreaker.services.card_database import (
     get_card_colors,
     get_card_database,
     get_card_rarity,
     get_card_type,
 )
-from forgebreaker.services.collection_sanitizer import try_sanitize_collection
 from forgebreaker.services.demo_collection import (
     demo_collection_available,
     get_demo_collection,
@@ -312,10 +315,22 @@ async def import_user_collection(
             detail="Import text cannot be empty",
         )
 
-    # Parse the import text
-    parsed_cards = parse_collection_text(request.text, request.format)
+    # Parse to InventoryCard list
+    # For Arena format, use direct parsing to preserve set codes
+    # For other formats, parse to dict then convert (loses set code info)
+    if request.format == "arena" or (
+        request.format == "auto" and "(" in request.text and ")" in request.text
+    ):
+        # Arena format - parse directly to InventoryCard
+        inventory = parse_arena_to_inventory(request.text)
+    else:
+        # Other formats - parse to dict then convert to InventoryCard
+        parsed_cards = parse_collection_text(request.text, request.format)
+        inventory = [
+            InventoryCard(name=name, set_code="", count=qty) for name, qty in parsed_cards.items()
+        ]
 
-    if not parsed_cards:
+    if not inventory:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid cards found in import text",
@@ -338,40 +353,29 @@ async def import_user_collection(
     if had_existing_collection and request.import_mode == "replace":
         await delete_collection(session, user_id)
 
-    # Sanitize collection: remove cards not in card database
-    # This happens ONCE at import time, not at request time
-    # INVARIANT: Sanitization message is ephemeral - returned here only, never persisted
-    sanitization_info: SanitizationInfo | None = None
-    sanitization_result = try_sanitize_collection(parsed_cards)
-
-    if sanitization_result is not None:
-        # Card database available - use sanitized cards
-        cards_to_save = sanitization_result.sanitized_cards
-
-        # Build ephemeral user message if cards were removed
-        # This message exists ONLY in this response, never stored
-        if sanitization_result.had_removals:
-            sanitization_info = SanitizationInfo(
-                cards_removed=sanitization_result.removed_unique_count,
-                message=(
-                    "We cleaned up your collection by removing cards that aren't "
-                    "supported by the current card database. You can re-import "
-                    "your collection at any time if you update it."
-                ),
-            )
-    else:
-        # Card database unavailable - save as-is (request-time guard is safety net)
-        cards_to_save = parsed_cards
-
-    # Reject if all cards were removed
-    if not cards_to_save:
+    # Resolve inventory to canonical cards
+    # This is the trust boundary: untrusted InventoryCard -> trusted OwnedCard
+    # Terminal failure (KnownError) if ANY card fails resolution
+    try:
+        card_db = get_card_database()
+    except FileNotFoundError as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No valid cards found after sanitization. "
-            "All imported cards are not recognized by the card database.",
-        )
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Card database not available. Please try again later.",
+        ) from e
 
-    # Save the sanitized collection
+    resolver = CanonicalCardResolver(card_db)
+
+    try:
+        owned_cards = resolver.resolve_or_fail(inventory)
+    except KnownError:
+        # Re-raise as-is - will be handled by error middleware
+        raise
+
+    # Convert to dict for storage (canonical name -> summed count)
+    cards_to_save = {oc.card.name: oc.count for oc in owned_cards}
+
+    # Save the resolved collection
     db_collection = await update_collection_cards(session, user_id, cards_to_save)
     model = collection_to_model(db_collection)
 
@@ -382,7 +386,7 @@ async def import_user_collection(
         cards=model.cards,
         collection_source="USER",
         replaced_existing=had_existing_collection and request.import_mode == "replace",
-        sanitization=sanitization_info,
+        sanitization=None,  # No sanitization with canonical resolution - failures are terminal
     )
 
 

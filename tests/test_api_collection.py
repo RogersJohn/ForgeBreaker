@@ -201,8 +201,33 @@ class TestDeleteCollection:
 
 
 class TestImportCollection:
-    async def test_import_simple_format(self, client: AsyncClient) -> None:
+    async def test_import_simple_format(
+        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Can import collection from simple text format."""
+        mock_db = {
+            "Lightning Bolt": {
+                "name": "Lightning Bolt",
+                "oracle_id": "oracle-bolt-123",
+                "type_line": "Instant",
+                "colors": ["R"],
+                "set": "sta",
+                "legalities": {"standard": "not_legal", "historic": "legal"},
+            },
+            "Mountain": {
+                "name": "Mountain",
+                "oracle_id": "oracle-mountain-456",
+                "type_line": "Basic Land — Mountain",
+                "colors": [],
+                "set": "dmu",
+                "legalities": {"standard": "legal", "historic": "legal"},
+            },
+        }
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_db,
+        )
+
         response = await client.post(
             "/collection/user-123/import",
             json={"text": "4 Lightning Bolt\n20 Mountain"},
@@ -457,6 +482,30 @@ class TestDemoModeBoundary:
             "forgebreaker.api.collection.demo_collection_available", mock_demo_available
         )
         monkeypatch.setattr("forgebreaker.api.collection.get_demo_collection", mock_get_demo)
+
+        # Mock card database for import (canonical resolution)
+        mock_card_db = {
+            "Lightning Bolt": {
+                "name": "Lightning Bolt",
+                "oracle_id": "oracle-bolt-123",
+                "type_line": "Instant",
+                "colors": ["R"],
+                "set": "sta",
+                "legalities": {"standard": "not_legal", "historic": "legal"},
+            },
+            "Mountain": {
+                "name": "Mountain",
+                "oracle_id": "oracle-mountain-456",
+                "type_line": "Basic Land — Mountain",
+                "colors": [],
+                "set": "dmu",
+                "legalities": {"standard": "legal", "historic": "legal"},
+            },
+        }
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db,
+        )
 
         # First verify user gets demo data
         response = await client.get("/collection/test-user")

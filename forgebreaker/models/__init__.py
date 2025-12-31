@@ -11,6 +11,11 @@ from forgebreaker.models.budget import (
     BudgetExceededError,
     RequestBudget,
 )
+from forgebreaker.models.canonical_card import (
+    CanonicalCard,
+    InventoryCard,
+    OwnedCard,
+)
 from forgebreaker.models.card import Card
 from forgebreaker.models.clarification import (
     DEFAULT_MAX_CLARIFICATIONS,
@@ -47,6 +52,7 @@ __all__ = [
     "AllowedCardSet",
     "ApiResponse",
     "BudgetExceededError",
+    "CanonicalCard",
     "Card",
     "CardNotAllowedError",
     "ClarificationDecision",
@@ -61,9 +67,11 @@ __all__ = [
     "DeckValidationError",
     "FailureDetail",
     "FailureKind",
+    "InventoryCard",
     "KnownError",
     "MetaDeck",
     "OutcomeType",
+    "OwnedCard",
     "RankedDeck",
     "RefusalError",
     "RequestBudget",

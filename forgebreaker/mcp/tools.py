@@ -655,8 +655,7 @@ async def search_collection_tool(
         raise KnownError(
             kind=FailureKind.NOT_FOUND,
             message=(
-                "You don't have a collection imported yet. "
-                "Please import one to search your cards."
+                "You don't have a collection imported yet. Please import one to search your cards."
             ),
             suggestion="Use the collection import endpoint to upload your collection.",
         )
@@ -821,8 +820,7 @@ async def find_synergies_tool(
         raise KnownError(
             kind=FailureKind.NOT_FOUND,
             message=(
-                "You don't have a collection imported yet. "
-                "Please import one to find synergies."
+                "You don't have a collection imported yet. Please import one to find synergies."
             ),
             suggestion="Use the collection import endpoint to upload your collection.",
         )

@@ -13,6 +13,7 @@ Sections are separated by headers: Deck, Sideboard, Commander, Companion
 
 import re
 
+from forgebreaker.models.canonical_card import InventoryCard
 from forgebreaker.models.card import Card
 from forgebreaker.models.collection import Collection
 
@@ -92,6 +93,68 @@ def parse_arena_export(text: str) -> list[Card]:
         # This handles comments or malformed lines gracefully
 
     return cards
+
+
+def parse_arena_to_inventory(text: str) -> list[InventoryCard]:
+    """
+    Parse Arena export text to InventoryCard list.
+
+    This is the entry point for canonical card resolution.
+    Does NOT consolidate - returns one InventoryCard per line.
+
+    Args:
+        text: Raw Arena export text
+
+    Returns:
+        List of InventoryCard objects (one per valid line)
+    """
+    if not text or not text.strip():
+        return []
+
+    inventory: list[InventoryCard] = []
+
+    for line in text.strip().split("\n"):
+        line = line.strip()
+
+        # Skip empty lines
+        if not line:
+            continue
+
+        # Skip section headers
+        if line.lower() in SECTION_HEADERS:
+            continue
+
+        # Try full pattern first (with set code)
+        match = ARENA_FULL_PATTERN.match(line)
+        if match:
+            quantity, name, set_code, collector_num = match.groups()
+            inventory.append(
+                InventoryCard(
+                    name=name,
+                    set_code=set_code,
+                    count=int(quantity),
+                    collector_number=collector_num,
+                )
+            )
+            continue
+
+        # Try simple pattern (no set code)
+        match = ARENA_SIMPLE_PATTERN.match(line)
+        if match:
+            quantity, name = match.groups()
+            inventory.append(
+                InventoryCard(
+                    name=name,
+                    set_code="",
+                    count=int(quantity),
+                    collector_number=None,
+                )
+            )
+            continue
+
+        # Line didn't match any pattern - skip silently
+
+    return inventory
 
 
 def cards_to_collection(cards: list[Card]) -> Collection:

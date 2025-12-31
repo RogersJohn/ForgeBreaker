@@ -81,6 +81,49 @@ def mock_card_db() -> dict:
     }
 
 
+@pytest.fixture
+def mock_card_db_with_oracle() -> dict:
+    """Mock card database with oracle_id for canonical resolution."""
+    return {
+        "Lightning Bolt": {
+            "name": "Lightning Bolt",
+            "oracle_id": "oracle-bolt-123",
+            "rarity": "common",
+            "type_line": "Instant",
+            "colors": ["R"],
+            "set": "sta",
+            "legalities": {"standard": "not_legal", "historic": "legal"},
+        },
+        "Mountain": {
+            "name": "Mountain",
+            "oracle_id": "oracle-mountain-456",
+            "rarity": "common",
+            "type_line": "Basic Land — Mountain",
+            "colors": [],
+            "set": "dmu",
+            "legalities": {"standard": "legal", "historic": "legal"},
+        },
+        "Counterspell": {
+            "name": "Counterspell",
+            "oracle_id": "oracle-counter-789",
+            "rarity": "uncommon",
+            "type_line": "Instant",
+            "colors": ["U"],
+            "set": "sta",
+            "legalities": {"standard": "not_legal", "historic": "legal"},
+        },
+        "Tarmogoyf": {
+            "name": "Tarmogoyf",
+            "oracle_id": "oracle-goyf-101",
+            "rarity": "mythic",
+            "type_line": "Creature — Lhurgoyf",
+            "colors": ["G"],
+            "set": "mh2",
+            "legalities": {"standard": "not_legal", "modern": "legal"},
+        },
+    }
+
+
 # =============================================================================
 # UNIT TESTS: SANITIZATION SERVICE
 # =============================================================================
@@ -231,64 +274,26 @@ class TestTrySanitizeCollection:
 
 
 # =============================================================================
-# INTEGRATION TESTS: IMPORT ENDPOINT
+# INTEGRATION TESTS: IMPORT ENDPOINT (CANONICAL RESOLUTION)
 # =============================================================================
 
 
-class TestImportSanitization:
-    """Integration tests for import-time sanitization."""
+class TestImportCanonicalResolution:
+    """Integration tests for import-time canonical card resolution.
 
-    async def test_import_removes_invalid_cards(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    BEHAVIOR CHANGE: Import now uses CanonicalCardResolver which:
+    - Requires all cards to resolve successfully (terminal failure otherwise)
+    - No longer sanitizes/removes invalid cards
+    - SUMs counts across printings (not MAX)
+    """
+
+    async def test_import_succeeds_with_all_valid_cards(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """
-        REQUIRED TEST 1: Import sanitization.
-
-        Import a collection containing invalid cards.
-        Assert:
-        - Invalid cards removed
-        - Sanitized collection persisted
-        - Sanitization metadata recorded
-        """
-        mock_db = {
-            "Lightning Bolt": {"name": "Lightning Bolt"},
-            "Mountain": {"name": "Mountain"},
-        }
+        """Import succeeds when all cards are in the database."""
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
-        )
-
-        # Import with mix of valid and invalid cards
-        response = await client.post(
-            "/collection/test-user/import",
-            json={"text": "4 Lightning Bolt\n2 Fake Card Alpha\n20 Mountain"},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-
-        # Invalid cards removed from persisted collection
-        assert "Fake Card Alpha" not in data["cards"]
-        assert data["cards"]["Lightning Bolt"] == 4
-        assert data["cards"]["Mountain"] == 20
-
-        # Sanitization metadata present
-        assert data["sanitization"] is not None
-        assert data["sanitization"]["cards_removed"] == 1
-        assert "message" in data["sanitization"]
-
-    async def test_import_no_sanitization_when_all_valid(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """No sanitization info when all cards are valid."""
-        mock_db = {
-            "Lightning Bolt": {"name": "Lightning Bolt"},
-            "Mountain": {"name": "Mountain"},
-        }
-        monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         response = await client.post(
@@ -298,19 +303,44 @@ class TestImportSanitization:
 
         assert response.status_code == 200
         data = response.json()
-
-        # No sanitization info when nothing removed
-        assert data["sanitization"] is None
         assert data["cards"]["Lightning Bolt"] == 4
+        assert data["cards"]["Mountain"] == 20
+        assert data["sanitization"] is None  # No sanitization with canonical resolution
+
+    async def test_import_fails_with_any_invalid_card(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        BEHAVIOR CHANGE: Import fails if ANY card is not in the database.
+
+        Old behavior: Invalid cards removed, valid cards imported.
+        New behavior: Terminal failure, no partial import.
+        """
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
+        )
+
+        # Import with mix of valid and invalid cards
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt\n2 Fake Card Alpha\n20 Mountain"},
+        )
+
+        # Should fail (terminal error)
+        assert response.status_code == 400
+        failure = response.json().get("failure", {})
+        detail = failure.get("detail", "") or ""
+        message = failure.get("message", "") or ""
+        assert "could not be resolved" in message or "Fake Card Alpha" in detail
 
     async def test_import_all_invalid_rejected(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Import rejected when ALL cards are invalid."""
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         response = await client.post(
@@ -319,163 +349,159 @@ class TestImportSanitization:
         )
 
         assert response.status_code == 400
-        assert "No valid cards" in response.json()["detail"]
+
+
+class TestCanonicalResolutionSumBehavior:
+    """Tests verifying SUM behavior for multiple printings."""
+
+    async def test_multiple_printings_sum_counts(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """
+        BEHAVIOR CHANGE: Multiple printings now SUM counts.
+
+        Old: max(4, 3) = 4
+        New: sum(4, 3) = 7
+        """
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
+        )
+
+        # Import same card with different set codes (Arena format)
+        response = await client.post(
+            "/collection/test-user/import",
+            json={
+                "text": "4 Lightning Bolt (STA) 123\n3 Lightning Bolt (DMU) 456",
+                "format": "arena",
+            },
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+
+        # Should be SUM (7), not MAX (4)
+        assert data["cards"]["Lightning Bolt"] == 7
+
+
+# Legacy sanitization tests - these test the old behavior for the sanitize_collection
+# function itself, which still exists but is no longer used by the import endpoint.
+class TestImportSanitizationLegacy:
+    """Legacy tests for sanitize_collection function (still exists but not used by import)."""
+
+    async def test_sanitization_function_still_works(self, mock_card_db: dict) -> None:
+        """The sanitize_collection function still works for other use cases."""
+        cards = {"Lightning Bolt": 4, "Fake Card": 2}
+
+        result = sanitize_collection(cards, mock_card_db)
+
+        assert "Lightning Bolt" in result.sanitized_cards
+        assert "Fake Card" not in result.sanitized_cards
+        assert result.had_removals is True
 
 
 class TestUserMessaging:
-    """Tests for user-facing messaging behavior."""
+    """Tests for user-facing messaging behavior (now terminal failure messages)."""
 
-    async def test_message_returned_exactly_once(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    async def test_terminal_failure_on_invalid_cards(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
-        REQUIRED TEST 2: User messaging.
+        BEHAVIOR CHANGE: Import with invalid cards is now a terminal failure.
 
-        Assert:
-        - Informational message returned exactly once (on import)
-        - Message does not block import
-        - Message not repeated on subsequent requests
+        Old: Informational message, import continues.
+        New: Terminal error, no partial import.
         """
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
-        # First request: Import with invalid cards
-        import_response = await client.post(
-            "/collection/test-user/import",
-            json={"text": "4 Lightning Bolt\n2 Fake Card"},
-        )
-
-        assert import_response.status_code == 200
-        import_data = import_response.json()
-
-        # Message returned on import
-        assert import_data["sanitization"] is not None
-        assert import_data["sanitization"]["message"] is not None
-        assert "cleaned up" in import_data["sanitization"]["message"].lower()
-
-        # Import was NOT blocked
-        assert import_data["cards"]["Lightning Bolt"] == 4
-
-        # Second request: GET collection - no sanitization message
-        get_response = await client.get("/collection/test-user")
-
-        assert get_response.status_code == 200
-        get_data = get_response.json()
-
-        # No sanitization field in GET response (message not repeated)
-        assert "sanitization" not in get_data or get_data.get("sanitization") is None
-
-    async def test_message_tone_is_non_error(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Message uses calm, non-error language."""
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
-        monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
-        )
-
+        # Import with invalid cards - should fail
         response = await client.post(
             "/collection/test-user/import",
             json={"text": "4 Lightning Bolt\n2 Fake Card"},
         )
 
-        message = response.json()["sanitization"]["message"]
+        # Terminal failure instead of sanitization message
+        assert response.status_code == 400
 
-        # Tone check
-        assert "error" not in message.lower()
-        assert "failed" not in message.lower()
-        assert "warning" not in message.lower()
+    async def test_successful_import_no_sanitization_message(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Successful import has no sanitization message (all cards valid)."""
+        monkeypatch.setattr(
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
+        )
+
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "4 Lightning Bolt"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["sanitization"] is None
 
 
 class TestDeckBuildingRegression:
-    """Regression tests for deck-building after sanitization."""
+    """Regression tests for deck-building after canonical resolution."""
 
-    async def test_deck_building_succeeds_after_sanitization(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    async def test_deck_building_succeeds_after_import(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         REQUIRED TEST 3: Regression test.
 
-        After sanitization:
+        After import:
+        - Only valid cards are imported (invalid causes failure)
         - Deck-building request succeeds
         - No collection/DB mismatch error occurs
         """
-        # Full mock card database for deck building
-        mock_db = {
-            "Lightning Bolt": {
-                "name": "Lightning Bolt",
-                "type_line": "Instant",
-                "colors": ["R"],
-                "cmc": 1,
-                "rarity": "common",
-                "keywords": [],
-                "oracle_text": "Deal 3 damage",
-            },
-            "Mountain": {
-                "name": "Mountain",
-                "type_line": "Basic Land — Mountain",
-                "colors": [],
-                "cmc": 0,
-                "rarity": "common",
-                "keywords": [],
-                "oracle_text": "",
-            },
-        }
-
-        # Mock for sanitizer
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
-        # Import collection with invalid cards (they get sanitized out)
+        # Import collection with ONLY valid cards (invalid would cause failure)
         import_response = await client.post(
             "/collection/test-user/import",
-            json={"text": "4 Lightning Bolt\n20 Mountain\n2 Nonexistent Card"},
+            json={"text": "4 Lightning Bolt\n20 Mountain"},
         )
 
         assert import_response.status_code == 200
-        assert import_response.json()["sanitization"] is not None  # Had removals
+        assert import_response.json()["sanitization"] is None
 
-        # Verify sanitized collection only has valid cards
+        # Verify collection has all valid cards
         get_response = await client.get("/collection/test-user")
         cards = get_response.json()["cards"]
         assert "Lightning Bolt" in cards
         assert "Mountain" in cards
-        assert "Nonexistent Card" not in cards
 
-    async def test_sanitized_collection_subset_of_card_db(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    async def test_imported_collection_subset_of_card_db(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         INVARIANT: After import, collection_cards ⊆ card_database_cards.
 
         This is the core guarantee that prevents mismatch errors.
+        With canonical resolution, this is enforced by terminal failure on invalid.
         """
-        mock_db = {
-            "Card A": {"name": "Card A"},
-            "Card B": {"name": "Card B"},
-            "Card C": {"name": "Card C"},
-        }
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
-        # Import mix of valid and invalid
+        # Import only valid cards (required for success with canonical resolution)
         await client.post(
             "/collection/test-user/import",
-            json={"text": "4 Card A\n2 Card B\n1 Invalid Card\n3 Card C"},
+            json={"text": "4 Lightning Bolt\n2 Counterspell\n20 Mountain"},
         )
 
         # Get persisted collection
         response = await client.get("/collection/test-user")
         collection_cards = set(response.json()["cards"].keys())
-        card_db_cards = set(mock_db.keys())
+        card_db_cards = set(mock_card_db_with_oracle.keys())
 
         # INVARIANT: collection ⊆ card_db
         assert collection_cards.issubset(card_db_cards)
@@ -490,7 +516,7 @@ class TestDeleteCollection:
     """Tests for collection deletion functionality."""
 
     async def test_delete_collection_succeeds(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         REQUIRED TEST: Delete collection capability.
@@ -499,10 +525,9 @@ class TestDeleteCollection:
         - Deletion returns success with user_id
         - Subsequent GET returns empty or demo data
         """
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         # Create a collection
@@ -539,13 +564,12 @@ class TestDeleteCollection:
         assert "message" in data
 
     async def test_delete_response_has_user_friendly_message(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Delete response includes user-friendly message."""
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         # Create and delete
@@ -564,20 +588,16 @@ class TestExplicitImportMode:
     """Tests for explicit import_mode enforcement (Blocker 2)."""
 
     async def test_new_mode_rejects_existing_collection(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         BLOCKER 2 TEST: import_mode='new' fails if collection exists.
 
         This prevents silent data loss - no implicit overwrite possible.
         """
-        mock_db = {
-            "Lightning Bolt": {"name": "Lightning Bolt"},
-            "Mountain": {"name": "Mountain"},
-        }
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         # Create initial collection
@@ -596,20 +616,16 @@ class TestExplicitImportMode:
         assert "import_mode='replace'" in response.json()["detail"]
 
     async def test_replace_mode_deletes_then_imports(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         BLOCKER 2 TEST: import_mode='replace' deletes existing first.
 
         Collection A exists, import B with replace -> A removed, B exists.
         """
-        mock_db = {
-            "Lightning Bolt": {"name": "Lightning Bolt"},
-            "Mountain": {"name": "Mountain"},
-        }
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         # Create initial collection A
@@ -634,13 +650,12 @@ class TestExplicitImportMode:
         assert data["replaced_existing"] is True
 
     async def test_first_import_new_mode_succeeds(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """First import with mode='new' succeeds when no collection exists."""
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
         # First import - should succeed with default mode
@@ -653,7 +668,7 @@ class TestExplicitImportMode:
         assert response.json()["replaced_existing"] is False
 
     async def test_no_silent_overwrite_possible(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """
         INVARIANT: No silent data loss.
@@ -661,112 +676,63 @@ class TestExplicitImportMode:
         There must be no code path where a collection exists and
         import silently overwrites it.
         """
-        mock_db = {
-            "Card A": {"name": "Card A"},
-            "Card B": {"name": "Card B"},
-        }
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
-        # Create collection A
+        # Create collection with Lightning Bolt
         await client.post(
             "/collection/test-user/import",
-            json={"text": "4 Card A"},
+            json={"text": "4 Lightning Bolt"},
         )
 
-        # Verify A exists
+        # Verify Lightning Bolt exists
         get_a = await client.get("/collection/test-user")
-        assert "Card A" in get_a.json()["cards"]
+        assert "Lightning Bolt" in get_a.json()["cards"]
 
-        # Try to import B without explicit replace - must fail
+        # Try to import Mountain without explicit replace - must fail
         response = await client.post(
             "/collection/test-user/import",
-            json={"text": "4 Card B", "import_mode": "new"},
+            json={"text": "4 Mountain", "import_mode": "new"},
         )
         assert response.status_code == 409
 
-        # Collection A still intact
+        # Collection with Lightning Bolt still intact
         get_after = await client.get("/collection/test-user")
-        assert "Card A" in get_after.json()["cards"]
-        assert "Card B" not in get_after.json()["cards"]
+        assert "Lightning Bolt" in get_after.json()["cards"]
+        assert "Mountain" not in get_after.json()["cards"]
 
 
-class TestSanitizationMessageEphemeral:
-    """Tests for Blocker 1: Sanitization message lifecycle."""
+class TestImportAfterDelete:
+    """Tests for import after delete lifecycle."""
 
-    async def test_sanitization_message_not_stored(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+    async def test_import_after_delete_succeeds(
+        self, client: AsyncClient, mock_card_db_with_oracle: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """
-        BLOCKER 1 TEST: Sanitization message is ephemeral.
-
-        Assert:
-        - Message returned in import response
-        - Message NOT stored in collection
-        - Message NOT shown on deck build or GET
-        """
-        mock_db = {"Lightning Bolt": {"name": "Lightning Bolt"}}
+        """Import succeeds with mode='new' after collection is deleted."""
         monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
+            "forgebreaker.api.collection.get_card_database",
+            lambda: mock_card_db_with_oracle,
         )
 
-        # Import with invalid cards
-        import_response = await client.post(
-            "/collection/test-user/import",
-            json={"text": "4 Lightning Bolt\n2 Fake Card"},
-        )
-
-        assert import_response.status_code == 200
-        import_data = import_response.json()
-
-        # Message returned in import response
-        assert import_data["sanitization"] is not None
-        assert import_data["sanitization"]["message"] is not None
-
-        # GET collection - no sanitization field
-        get_response = await client.get("/collection/test-user")
-        get_data = get_response.json()
-
-        # Message NOT in GET response (ephemeral, not stored)
-        assert "sanitization" not in get_data
-
-    async def test_sanitization_message_not_on_deck_build(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """
-        BLOCKER 1 TEST: Sanitization message never shown during deck-building.
-
-        Message is ephemeral - exists only in import response.
-        """
-        mock_db = {
-            "Lightning Bolt": {
-                "name": "Lightning Bolt",
-                "type_line": "Instant",
-                "colors": ["R"],
-                "cmc": 1,
-                "rarity": "common",
-                "keywords": [],
-                "oracle_text": "Deal 3 damage",
-            },
-        }
-        monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
-        )
-
-        # Import with invalid cards (triggers sanitization message)
+        # Create collection
         await client.post(
             "/collection/test-user/import",
-            json={"text": "4 Lightning Bolt\n2 Fake Card"},
+            json={"text": "4 Lightning Bolt"},
         )
 
-        # GET stats - no sanitization field
-        stats_response = await client.get("/collection/test-user/stats")
-        stats_data = stats_response.json()
-        assert "sanitization" not in stats_data
+        # Delete collection
+        await client.delete("/collection/test-user")
+
+        # Import again with mode='new' - should succeed
+        response = await client.post(
+            "/collection/test-user/import",
+            json={"text": "20 Mountain"},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["cards"]["Mountain"] == 20
 
 
 class TestNoCollectionGuardAllTools:
@@ -961,43 +927,3 @@ class TestNoCollectionGuardAllTools:
             assert "import" in error.message.lower()
 
         await engine.dispose()
-
-
-class TestImportAfterDelete:
-    """Tests for re-importing after deletion."""
-
-    async def test_import_after_delete_succeeds(
-        self, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """
-        REQUIRED TEST: Can re-import after deletion without replace flag.
-
-        After delete, user should be able to import fresh.
-        """
-        mock_db = {
-            "Lightning Bolt": {"name": "Lightning Bolt"},
-            "Mountain": {"name": "Mountain"},
-        }
-        monkeypatch.setattr(
-            "forgebreaker.services.card_database.get_card_database",
-            lambda: mock_db,
-        )
-
-        # Create initial collection
-        await client.post(
-            "/collection/test-user/import",
-            json={"text": "4 Lightning Bolt"},
-        )
-
-        # Delete it
-        await client.delete("/collection/test-user")
-
-        # Import again - should succeed WITHOUT replace flag
-        response = await client.post(
-            "/collection/test-user/import",
-            json={"text": "20 Mountain"},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["cards"]["Mountain"] == 20
-        assert response.json()["replaced_existing"] is False

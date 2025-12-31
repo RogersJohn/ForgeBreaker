@@ -35,6 +35,10 @@ from forgebreaker.services.arena_sanitizer import (
     sanitize_deck_for_arena,
     validate_arena_export,
 )
+from forgebreaker.services.canonical_card_resolver import (
+    CanonicalCardResolver,
+    ResolutionResult,
+)
 from forgebreaker.services.card_name_guard import (
     CardNameLeakageError,
     GuardResult,
@@ -90,6 +94,10 @@ from forgebreaker.services.synergy_finder import (
 )
 
 __all__ = [
+    # Canonical card resolution (collection import trust boundary)
+    "CanonicalCardResolver",
+    "ResolutionResult",
+    # Collection search
     "CardSearchResult",
     "format_search_results",
     "search_collection",
