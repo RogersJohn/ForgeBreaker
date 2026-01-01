@@ -11,7 +11,12 @@ INVARIANT: No deck may exceed:
 
 import pytest
 
-from forgebreaker.models.canonical_card import CanonicalCard, OwnedCard
+from forgebreaker.models.canonical_card import (
+    CanonicalCard,
+    CardMetadata,
+    OwnedCard,
+    ResolvedCard,
+)
 from forgebreaker.models.owned_card_pool import (
     DEFAULT_MAX_COPIES,
     CopyLimitExceededError,
@@ -24,25 +29,42 @@ from forgebreaker.models.owned_card_pool import (
 # =============================================================================
 
 
+def _make_resolved_card(
+    oracle_id: str,
+    name: str,
+    type_line: str = "",
+    colors: tuple[str, ...] = (),
+    legalities: dict[str, str] | None = None,
+) -> ResolvedCard:
+    """Helper to create a ResolvedCard from identity + metadata."""
+    identity = CanonicalCard(oracle_id=oracle_id, name=name)
+    metadata = CardMetadata(
+        type_line=type_line,
+        colors=colors,
+        legalities=legalities or {},
+    )
+    return ResolvedCard(identity=identity, metadata=metadata)
+
+
 @pytest.fixture
-def sample_canonical_cards() -> list[CanonicalCard]:
-    """Sample canonical cards for testing."""
+def sample_resolved_cards() -> list[ResolvedCard]:
+    """Sample resolved cards for testing."""
     return [
-        CanonicalCard(
+        _make_resolved_card(
             oracle_id="bolt-123",
             name="Lightning Bolt",
             type_line="Instant",
             colors=("R",),
             legalities={"standard": "not_legal", "historic": "legal"},
         ),
-        CanonicalCard(
+        _make_resolved_card(
             oracle_id="mountain-456",
             name="Mountain",
             type_line="Basic Land — Mountain",
             colors=(),
             legalities={"standard": "legal", "historic": "legal"},
         ),
-        CanonicalCard(
+        _make_resolved_card(
             oracle_id="counter-789",
             name="Counterspell",
             type_line="Instant",
@@ -53,12 +75,12 @@ def sample_canonical_cards() -> list[CanonicalCard]:
 
 
 @pytest.fixture
-def owned_cards_with_counts(sample_canonical_cards: list[CanonicalCard]) -> list[OwnedCard]:
+def owned_cards_with_counts(sample_resolved_cards: list[ResolvedCard]) -> list[OwnedCard]:
     """Owned cards with various counts including zero."""
     return [
-        OwnedCard(card=sample_canonical_cards[0], count=4),  # Lightning Bolt x4
-        OwnedCard(card=sample_canonical_cards[1], count=20),  # Mountain x20
-        OwnedCard(card=sample_canonical_cards[2], count=0),  # Counterspell x0 (PHANTOM)
+        OwnedCard(card=sample_resolved_cards[0], count=4),  # Lightning Bolt x4
+        OwnedCard(card=sample_resolved_cards[1], count=20),  # Mountain x20
+        OwnedCard(card=sample_resolved_cards[2], count=0),  # Counterspell x0 (PHANTOM)
     ]
 
 
@@ -337,15 +359,13 @@ class TestBuildOwnedPool:
     Tests for the build_owned_pool helper function.
     """
 
-    def test_build_with_legal_cards_filter(
-        self, sample_canonical_cards: list[CanonicalCard]
-    ) -> None:
+    def test_build_with_legal_cards_filter(self, sample_resolved_cards: list[ResolvedCard]) -> None:
         """
         build_owned_pool can filter by legal cards.
         """
         owned = [
-            OwnedCard(card=sample_canonical_cards[0], count=4),  # Lightning Bolt
-            OwnedCard(card=sample_canonical_cards[1], count=20),  # Mountain
+            OwnedCard(card=sample_resolved_cards[0], count=4),  # Lightning Bolt
+            OwnedCard(card=sample_resolved_cards[1], count=20),  # Mountain
         ]
 
         # Only Mountain is Standard-legal
@@ -356,13 +376,13 @@ class TestBuildOwnedPool:
         assert "Mountain" in pool
         assert "Lightning Bolt" not in pool
 
-    def test_build_without_filter(self, sample_canonical_cards: list[CanonicalCard]) -> None:
+    def test_build_without_filter(self, sample_resolved_cards: list[ResolvedCard]) -> None:
         """
         build_owned_pool without filter includes all count > 0 cards.
         """
         owned = [
-            OwnedCard(card=sample_canonical_cards[0], count=4),  # Lightning Bolt
-            OwnedCard(card=sample_canonical_cards[1], count=20),  # Mountain
+            OwnedCard(card=sample_resolved_cards[0], count=4),  # Lightning Bolt
+            OwnedCard(card=sample_resolved_cards[1], count=20),  # Mountain
         ]
 
         pool = build_owned_pool(owned)
@@ -424,56 +444,64 @@ class TestNoPhantomLeakageRegression:
 
 class TestAvailableCopies:
     """
-    Tests for available_copies(card: CanonicalCard) method.
+    Tests for available_copies(card) method.
 
     INVARIANT: Returns min(owned_count, max_copies).
     """
 
     def test_available_copies_with_canonical_card(
-        self, sample_canonical_cards: list[CanonicalCard]
+        self, sample_resolved_cards: list[ResolvedCard]
     ) -> None:
         """
-        available_copies() accepts CanonicalCard and returns correct count.
+        available_copies() accepts card identity and returns correct count.
         """
         owned = [
-            OwnedCard(card=sample_canonical_cards[0], count=4),  # Lightning Bolt
-            OwnedCard(card=sample_canonical_cards[1], count=20),  # Mountain
+            OwnedCard(card=sample_resolved_cards[0], count=4),  # Lightning Bolt
+            OwnedCard(card=sample_resolved_cards[1], count=20),  # Mountain
         ]
         pool = OwnedCardPool.from_owned_cards(owned)
 
+        # Use the identity (CanonicalCard) for lookup
+        bolt_identity = sample_resolved_cards[0].identity
+        mountain_identity = sample_resolved_cards[1].identity
+
         # Lightning Bolt: own 4, max 4 -> 4
-        assert pool.available_copies(sample_canonical_cards[0]) == 4
+        assert pool.available_copies(bolt_identity) == 4
 
         # Mountain: own 20, max 4 -> 4
-        assert pool.available_copies(sample_canonical_cards[1]) == 4
+        assert pool.available_copies(mountain_identity) == 4
 
     def test_available_copies_respects_custom_limit(
-        self, sample_canonical_cards: list[CanonicalCard]
+        self, sample_resolved_cards: list[ResolvedCard]
     ) -> None:
         """
         available_copies() respects custom max_copies limit.
         """
         owned = [
-            OwnedCard(card=sample_canonical_cards[1], count=20),  # Mountain
+            OwnedCard(card=sample_resolved_cards[1], count=20),  # Mountain
         ]
         pool = OwnedCardPool.from_owned_cards(owned)
 
+        mountain_identity = sample_resolved_cards[1].identity
+
         # Custom limit of 10
-        assert pool.available_copies(sample_canonical_cards[1], max_copies=10) == 10
+        assert pool.available_copies(mountain_identity, max_copies=10) == 10
 
         # Custom limit higher than owned
-        assert pool.available_copies(sample_canonical_cards[1], max_copies=100) == 20
+        assert pool.available_copies(mountain_identity, max_copies=100) == 20
 
     def test_available_copies_returns_zero_for_unowned(
-        self, sample_canonical_cards: list[CanonicalCard]
+        self, sample_resolved_cards: list[ResolvedCard]
     ) -> None:
         """
         available_copies() returns 0 for cards not in pool.
         """
         pool = OwnedCardPool.from_dict({"Other Card": 4})
 
+        bolt_identity = sample_resolved_cards[0].identity
+
         # Card not in pool
-        assert pool.available_copies(sample_canonical_cards[0]) == 0
+        assert pool.available_copies(bolt_identity) == 0
 
     def test_default_max_copies_is_four(self) -> None:
         """

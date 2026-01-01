@@ -13,8 +13,10 @@ from forgebreaker.models.budget import (
 )
 from forgebreaker.models.canonical_card import (
     CanonicalCard,
+    CardMetadata,
     InventoryCard,
     OwnedCard,
+    ResolvedCard,
 )
 from forgebreaker.models.card import Card
 from forgebreaker.models.clarification import (
@@ -81,6 +83,7 @@ __all__ = [
     "CURRENT_ROTATION_VERSION",
     "CanonicalCard",
     "Card",
+    "CardMetadata",
     "CardNotAllowedError",
     "CardScorer",
     "ClarificationDecision",
@@ -114,6 +117,7 @@ __all__ = [
     "RankedDeck",
     "RefusalError",
     "RequestBudget",
+    "ResolvedCard",
     "STANDARD_MESSAGES",
     "STANDARD_SUGGESTIONS",
     "SignalStrength",
