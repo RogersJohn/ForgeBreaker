@@ -90,54 +90,115 @@ def _is_terminal_success(tool_name: str, result: Any) -> bool:
     """
     Determine if a tool result represents terminal success.
 
-    A result is terminally successful if:
+    Terminal success requires ALL of the following:
     1. The tool is in TERMINAL_SUCCESS_TOOLS
-    2. The result is a dict with "success": True AND has actual content
-    3. No error is present in the result
-    4. The result is NOT empty/trivial
+    2. A deck/result object was produced (isinstance dict)
+    3. Deck/result contains >= 1 card/item
+    4. No hard constraint failures occurred (no error, no fatal warnings)
 
     This is a DETERMINISTIC check - no heuristics.
 
-    IMPORTANT: Empty results (0 cards, no matches) are NOT terminal success.
-    They should be returned to the LLM for explanation or retry.
+    INVARIANT: Empty decks or "no theme cards found" results are NOT terminal success.
+    They must be treated as recoverable failures, not terminal success.
     """
+    # Requirement 1: Tool must be in terminal success set
     if tool_name not in TERMINAL_SUCCESS_TOOLS:
+        logger.debug(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={"tool": tool_name, "result": False, "reason": "not_in_terminal_tools"},
+        )
         return False
 
+    # Requirement 2: Result must be a dict
     if not isinstance(result, dict):
+        logger.debug(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={"tool": tool_name, "result": False, "reason": "result_not_dict"},
+        )
         return False
 
-    # Explicit error means not success
+    # Requirement 4a: Explicit error means hard constraint failure
     if result.get("error"):
+        logger.debug(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={"tool": tool_name, "result": False, "reason": "explicit_error"},
+        )
         return False
 
-    # Check for warnings that indicate empty/failed results
+    # Requirement 4b: Check for warnings that indicate hard constraint failure
     warnings = result.get("warnings", [])
     if warnings and any("no cards" in w.lower() or "not found" in w.lower() for w in warnings):
+        logger.debug(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={"tool": tool_name, "result": False, "reason": "warning_no_cards"},
+        )
         return False
 
-    # For build_deck: must have actual cards
+    # For build_deck: Requirement 3 - must have >= 1 card
     if tool_name == "build_deck":
         total_cards = result.get("total_cards", 0)
-        if total_cards == 0:
-            return False  # Empty deck is not a success
-        return result.get("success") is True
+        # INVARIANT: Empty decks are NOT terminal success
+        if total_cards < 1:
+            logger.info(
+                "TERMINAL_SUCCESS_CHECK",
+                extra={
+                    "tool": tool_name,
+                    "result": False,
+                    "reason": "empty_deck",
+                    "total_cards": total_cards,
+                },
+            )
+            return False
+        is_success = result.get("success") is True
+        logger.info(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={
+                "tool": tool_name,
+                "result": is_success,
+                "reason": "deck_with_cards" if is_success else "success_flag_false",
+                "total_cards": total_cards,
+            },
+        )
+        return is_success
 
-    # For search_collection: must have results
+    # For search_collection: must have >= 1 result
     if tool_name == "search_collection":
         results = result.get("results", [])
-        return bool(results)  # No results is not terminal success
+        has_results = bool(results)
+        logger.info(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={
+                "tool": tool_name,
+                "result": has_results,
+                "reason": "has_results" if has_results else "empty_results",
+                "result_count": len(results),
+            },
+        )
+        return has_results
 
     # For other tools with explicit success flag
     if result.get("success") is True:
+        logger.info(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={"tool": tool_name, "result": True, "reason": "explicit_success_flag"},
+        )
         return True
 
     # For tools that return data without explicit success flag,
     # check for presence of expected data fields with actual content
     if "results" in result and result["results"]:
+        logger.info(
+            "TERMINAL_SUCCESS_CHECK",
+            extra={"tool": tool_name, "result": True, "reason": "has_results_field"},
+        )
         return True
 
-    return bool("cards" in result and result["cards"])
+    has_cards = bool("cards" in result and result["cards"])
+    logger.info(
+        "TERMINAL_SUCCESS_CHECK",
+        extra={"tool": tool_name, "result": has_cards, "reason": "has_cards_field"},
+    )
+    return has_cards
 
 
 @dataclass
