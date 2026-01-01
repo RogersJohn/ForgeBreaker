@@ -70,6 +70,12 @@ from forgebreaker.models.owned_card_pool import (
     OwnedCardPool,
     build_owned_pool,
 )
+from forgebreaker.models.theme_intent import (
+    KNOWN_TRIBES,
+    ThemeIntent,
+    card_matches_tribe,
+    normalize_theme,
+)
 from forgebreaker.models.validated_deck import (
     DeckValidationError,
     ValidatedDeck,
@@ -121,8 +127,10 @@ __all__ = [
     "STANDARD_MESSAGES",
     "STANDARD_SUGGESTIONS",
     "SignalStrength",
+    "ThemeIntent",
     "ValidatedDeck",
     "WildcardCost",
+    "card_matches_tribe",
     "build_allowed_set",
     "build_owned_pool",
     "check_legality",
@@ -137,6 +145,8 @@ __all__ = [
     "is_finalized",
     "is_theme_query",
     "is_tribal_query",
+    "normalize_theme",
     "validate_card_in_allowed_set",
     "validate_card_list",
+    "KNOWN_TRIBES",
 ]

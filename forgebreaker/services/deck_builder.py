@@ -2,12 +2,23 @@
 Deck building service.
 
 Builds playable decks from user's collection around a theme.
+
+INVARIANT: Theme matching is a PREFERENCE, not a FILTER.
+Zero theme matches must NOT produce an empty candidate pool.
 """
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
 from forgebreaker.models.collection import Collection
+from forgebreaker.models.theme_intent import (
+    ThemeIntent,
+    card_matches_tribe,
+    normalize_theme,
+)
+
+logger = logging.getLogger(__name__)
 
 # Color mappings used throughout deck building
 COLOR_TO_BASIC_LAND = {
@@ -100,11 +111,16 @@ def build_deck(
     Build a deck from user's collection around a theme.
 
     Strategy:
-    1. Find all cards matching the theme that user owns
-    2. Determine color identity from theme cards
-    3. Add support cards (removal, card draw) in those colors
-    4. Fill mana base from owned lands
-    5. Validate deck size and provide warnings
+    1. Normalize theme intent (extract tribe if tribal request)
+    2. Find all legal cards user owns (candidate pool)
+    3. Apply theme as PREFERENCE (not filter) to prioritize theme cards
+    4. Determine color identity from theme cards (or all cards if no theme match)
+    5. Add support cards (removal, card draw) in those colors
+    6. Fill mana base from owned lands
+    7. Validate deck size and provide warnings
+
+    INVARIANT: Theme matching is a PREFERENCE, not a FILTER.
+    Zero theme matches must NOT produce an empty candidate pool.
 
     Args:
         request: Deck building parameters
@@ -120,8 +136,20 @@ def build_deck(
 
     legal_cards = format_legality.get(request.format, set())
 
-    # Step 1: Find theme cards
-    theme_cards: list[tuple[str, int, dict[str, Any]]] = []
+    # Step 0: Normalize theme intent
+    theme_intent = normalize_theme(request.theme)
+
+    logger.info(
+        "THEME_INTENT_NORMALIZED",
+        extra={
+            "raw_theme": request.theme,
+            "tribe": theme_intent.tribe,
+            "format": request.format,
+        },
+    )
+
+    # Step 1: Build candidate pool (ALL legal owned cards, not filtered by theme)
+    candidate_pool: list[tuple[str, int, dict[str, Any]]] = []
 
     for card_name, qty in collection.cards.items():
         if card_name not in legal_cards:
@@ -131,25 +159,52 @@ def build_deck(
         if not card_data:
             continue
 
-        # Check if card matches theme
-        if _matches_theme(card_name, card_data, request.theme):
+        # Skip lands for now (added separately)
+        if "Land" in card_data.get("type_line", ""):
+            continue
+
+        candidate_pool.append((card_name, qty, card_data))
+
+    candidate_pool_size = len(candidate_pool)
+
+    logger.info(
+        "CANDIDATE_POOL_BEFORE_THEME",
+        extra={
+            "candidate_count": candidate_pool_size,
+            "format": request.format,
+        },
+    )
+
+    # Step 2: Find theme cards (PREFERENCE, not FILTER)
+    theme_cards: list[tuple[str, int, dict[str, Any]]] = []
+
+    for card_name, qty, card_data in candidate_pool:
+        if _matches_theme_intent(card_name, card_data, theme_intent):
             theme_cards.append((card_name, qty, card_data))
 
-    if not theme_cards:
-        warnings.append(f"No cards matching theme '{request.theme}' found in your collection")
-        return BuiltDeck(
-            name=f"{request.theme} Deck",
-            cards={},
-            total_cards=0,
-            colors=set(),
-            theme_cards=[],
-            support_cards=[],
-            lands={},
-            notes=notes,
-            warnings=warnings,
-        )
+    theme_cards_count = len(theme_cards)
 
-    notes.append(f"Found {len(theme_cards)} cards matching theme '{request.theme}'")
+    logger.info(
+        "CANDIDATE_POOL_AFTER_THEME",
+        extra={
+            "theme_card_count": theme_cards_count,
+            "candidate_count": candidate_pool_size,
+            "tribe": theme_intent.tribe,
+        },
+    )
+
+    # INVARIANT: Theme mismatch does NOT produce empty candidate pool
+    # If no theme cards found, we still build a deck from all owned cards
+    if not theme_cards:
+        warnings.append(
+            f"No cards matching theme '{request.theme}' found in your collection. "
+            "Building deck from available cards."
+        )
+        # Use all candidates as "theme" cards (preference becomes non-selective)
+        theme_cards = candidate_pool
+        notes.append("Using all available cards (no specific theme match)")
+    else:
+        notes.append(f"Found {theme_cards_count} cards matching theme '{request.theme}'")
 
     # Step 2: Determine colors
     deck_colors: set[str] = set()
@@ -300,7 +355,13 @@ def build_deck(
 
 
 def _matches_theme(card_name: str, card_data: dict[str, Any], theme: str) -> bool:
-    """Check if a card matches the deck theme."""
+    """
+    DEPRECATED: Use _matches_theme_intent() instead.
+
+    This function is kept for backwards compatibility but should not be used
+    for new code. It performs raw string matching which fails on phrases like
+    "goblin tribal".
+    """
     theme_lower = theme.lower()
 
     # Check name
@@ -315,6 +376,35 @@ def _matches_theme(card_name: str, card_data: dict[str, Any], theme: str) -> boo
     # Check oracle text for keywords
     oracle = card_data.get("oracle_text", "").lower()
     return theme_lower in oracle
+
+
+def _matches_theme_intent(
+    card_name: str,
+    card_data: dict[str, Any],
+    theme_intent: ThemeIntent,
+) -> bool:
+    """
+    Check if a card matches the normalized theme intent.
+
+    This function uses structured matching based on ThemeIntent:
+    1. If theme has a tribe, match against oracle subtypes and card name tokens
+    2. If no tribe extracted, fall back to raw theme matching
+
+    Args:
+        card_name: Name of the card
+        card_data: Scryfall card data
+        theme_intent: Normalized theme intent
+
+    Returns:
+        True if card matches the theme intent
+    """
+    # Primary: If we have a tribe, use oracle subtype matching
+    if theme_intent.has_tribe():
+        return card_matches_tribe(card_name, card_data, theme_intent.tribe)
+
+    # Fallback: No tribe extracted, use raw theme matching
+    # This handles non-tribal themes like "burn", "control", etc.
+    return _matches_theme(card_name, card_data, theme_intent.raw_theme)
 
 
 def _detect_archetype(
