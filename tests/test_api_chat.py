@@ -189,3 +189,164 @@ class TestChatRequestValidation:
             )
 
             assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class TestTerminalSuccessInvariant:
+    """
+    Tests for terminal success control-flow invariant.
+
+    INVARIANT: Successful tool calls that complete the user's request
+    must terminate immediately with NO additional LLM calls.
+    """
+
+    def test_build_deck_terminates_after_one_llm_call(self) -> None:
+        """
+        CRITICAL TEST: A simple deck build request must complete with exactly 1 LLM call.
+
+        This test verifies the terminal success invariant:
+        - User asks to build a deck
+        - LLM decides to call build_deck tool
+        - Tool returns successful deck
+        - Response is returned IMMEDIATELY
+        - NO second LLM call is made
+
+        If this test fails, the bug is back and requests will hit budget_exceeded.
+        """
+        from anthropic.types import ToolUseBlock
+
+        # First LLM response: Claude decides to use build_deck
+        mock_tool_use = MagicMock(spec=ToolUseBlock)
+        mock_tool_use.type = "tool_use"
+        mock_tool_use.id = "tool_123"
+        mock_tool_use.name = "build_deck"
+        mock_tool_use.input = {"theme": "goblin"}
+
+        mock_response = MagicMock()
+        mock_response.content = [mock_tool_use]
+        mock_response.usage = MagicMock()
+        mock_response.usage.input_tokens = 500
+        mock_response.usage.output_tokens = 100
+
+        # Successful deck result
+        mock_deck_result = {
+            "success": True,
+            "deck_name": "Goblin Tribal",
+            "total_cards": 60,
+            "colors": ["R"],
+            "theme_cards": 12,
+            "cards": {"Goblin Guide": 4, "Goblin Chainwhirler": 4},
+            "lands": {"Mountain": 24},
+            "notes": "Fast aggro deck",
+            "warnings": [],
+            "assumptions": "",
+        }
+
+        with (
+            patch("forgebreaker.api.chat.settings") as mock_settings,
+            patch("forgebreaker.api.chat.anthropic.Anthropic") as mock_anthropic,
+            patch("forgebreaker.api.chat.execute_tool") as mock_execute_tool,
+        ):
+            mock_settings.anthropic_api_key = "test-key"
+            mock_settings.use_filtered_candidate_pool = True
+
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = mock_response
+            mock_anthropic.return_value = mock_client
+
+            # Tool execution returns successful deck
+            mock_execute_tool.return_value = mock_deck_result
+
+            client = TestClient(app)
+            response = client.post(
+                "/chat/",
+                json={
+                    "user_id": "user123",
+                    "messages": [{"role": "user", "content": "Build me a goblin deck"}],
+                },
+            )
+
+            # MUST succeed
+            assert response.status_code == status.HTTP_200_OK
+
+            # CRITICAL ASSERTION: Exactly 1 LLM call was made
+            assert mock_client.messages.create.call_count == 1, (
+                f"Expected exactly 1 LLM call, got {mock_client.messages.create.call_count}. "
+                "Terminal success invariant violated - loop continued after success!"
+            )
+
+            # Response should contain the deck
+            data = response.json()
+            assert data["message"]["role"] == "assistant"
+            assert "Goblin Tribal" in data["message"]["content"]
+            assert len(data["tool_calls"]) == 1
+            assert data["tool_calls"][0]["name"] == "build_deck"
+
+    def test_search_collection_terminates_after_one_llm_call(self) -> None:
+        """search_collection also terminates immediately on success."""
+        from anthropic.types import ToolUseBlock
+
+        mock_tool_use = MagicMock(spec=ToolUseBlock)
+        mock_tool_use.type = "tool_use"
+        mock_tool_use.id = "tool_456"
+        mock_tool_use.name = "search_collection"
+        mock_tool_use.input = {"name_contains": "goblin"}
+
+        mock_response = MagicMock()
+        mock_response.content = [mock_tool_use]
+        mock_response.usage = MagicMock()
+        mock_response.usage.input_tokens = 300
+        mock_response.usage.output_tokens = 50
+
+        mock_search_result = {
+            "results": [
+                {"name": "Goblin Guide", "count": 4},
+                {"name": "Goblin Chainwhirler", "count": 2},
+            ],
+            "total": 2,
+            "query": "goblin",
+        }
+
+        with (
+            patch("forgebreaker.api.chat.settings") as mock_settings,
+            patch("forgebreaker.api.chat.anthropic.Anthropic") as mock_anthropic,
+            patch("forgebreaker.api.chat.execute_tool") as mock_execute_tool,
+        ):
+            mock_settings.anthropic_api_key = "test-key"
+            mock_settings.use_filtered_candidate_pool = True
+
+            mock_client = MagicMock()
+            mock_client.messages.create.return_value = mock_response
+            mock_anthropic.return_value = mock_client
+
+            mock_execute_tool.return_value = mock_search_result
+
+            client = TestClient(app)
+            response = client.post(
+                "/chat/",
+                json={
+                    "user_id": "user123",
+                    "messages": [{"role": "user", "content": "Do I have any goblins?"}],
+                },
+            )
+
+            assert response.status_code == status.HTTP_200_OK
+            assert mock_client.messages.create.call_count == 1
+
+    def test_terminal_success_detection(self) -> None:
+        """_is_terminal_success correctly identifies successful tool results."""
+        from forgebreaker.api.chat import _is_terminal_success
+
+        # build_deck with success=True is terminal
+        assert _is_terminal_success("build_deck", {"success": True, "deck_name": "Test"})
+
+        # build_deck with error is NOT terminal success
+        assert not _is_terminal_success("build_deck", {"error": "No cards found"})
+
+        # search_collection with results is terminal
+        assert _is_terminal_success("search_collection", {"results": [], "total": 0})
+
+        # Unknown tool is NOT terminal
+        assert not _is_terminal_success("unknown_tool", {"success": True})
+
+        # Non-dict result is NOT terminal
+        assert not _is_terminal_success("build_deck", "string result")

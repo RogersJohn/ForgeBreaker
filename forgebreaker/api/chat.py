@@ -49,11 +49,64 @@ class TerminalReason(str, Enum):
     """Classification of why execution terminated."""
 
     NONE = "none"  # Not terminal, continue
+    SUCCESS = "success"  # Tool completed successfully with valid result
     TOOL_ERROR = "tool_error"  # Tool raised an exception
     TOOL_RETURNED_ERROR = "tool_returned_error"  # Tool returned error in result
     KNOWN_FAILURE = "known_failure"  # KnownError exception
     REFUSAL = "refusal"  # RefusalError exception
     BUDGET_EXHAUSTED = "budget_exhausted"  # Budget limit hit
+
+
+# =============================================================================
+# TERMINAL SUCCESS DETECTION
+# =============================================================================
+
+# Tools that produce terminal success when they return {"success": True}
+# These tools complete the user's request fully - no follow-up LLM call needed
+TERMINAL_SUCCESS_TOOLS = frozenset(
+    {
+        "build_deck",
+        "find_synergies",
+        "improve_deck",
+        "search_collection",
+        "get_deck_recommendations",
+        "calculate_deck_distance",
+        "list_meta_decks",
+        "get_collection_stats",
+        "export_to_arena",
+    }
+)
+
+
+def _is_terminal_success(tool_name: str, result: Any) -> bool:
+    """
+    Determine if a tool result represents terminal success.
+
+    A result is terminally successful if:
+    1. The tool is in TERMINAL_SUCCESS_TOOLS
+    2. The result is a dict with "success": True OR contains valid data
+    3. No error is present in the result
+
+    This is a DETERMINISTIC check - no heuristics.
+    """
+    if tool_name not in TERMINAL_SUCCESS_TOOLS:
+        return False
+
+    if not isinstance(result, dict):
+        return False
+
+    # Explicit error means not success
+    if result.get("error"):
+        return False
+
+    # Explicit success flag
+    if result.get("success") is True:
+        return True
+
+    # For tools that return data without explicit success flag,
+    # check for presence of expected data fields
+    # (e.g., search_collection returns {"results": [...], "total": N})
+    return "results" in result or "cards" in result or "deck_name" in result
 
 
 @dataclass
@@ -64,6 +117,9 @@ class ToolProcessingResult:
     is_terminal: bool
     terminal_reason: TerminalReason
     error_message: str | None = None
+    # For terminal success, store the successful result for direct formatting
+    success_tool_name: str | None = None
+    success_result: dict[str, Any] | None = None
 
 
 @dataclass
@@ -275,9 +331,9 @@ def _create_terminal_response(
     ctx: RequestContext,
     tool_calls_made: list[dict[str, Any]],
 ) -> ChatResponse:
-    """Create a response for terminal outcomes without making an LLM call.
+    """Create a response for terminal FAILURE outcomes without making an LLM call.
 
-    This is used when we hit a terminal state and must return immediately.
+    This is used when we hit a terminal failure state and must return immediately.
     The response explains the failure to the user.
     """
     # Build user-friendly error message based on terminal reason
@@ -296,6 +352,166 @@ def _create_terminal_response(
         content = f"Request limit reached: {message}"
     else:
         content = f"Request could not be completed: {message}"
+
+    return ChatResponse(
+        message=ChatMessage(role="assistant", content=content),
+        tool_calls=tool_calls_made,
+    )
+
+
+def _format_terminal_success_response(
+    tool_name: str,
+    result: dict[str, Any],
+    tool_calls_made: list[dict[str, Any]],
+) -> ChatResponse:
+    """
+    Format a successful tool result into a user response.
+
+    This is the TERMINAL SUCCESS path - no further LLM calls are made.
+    The response is formatted deterministically from the tool result.
+
+    INVARIANT: This function produces a complete response without LLM involvement.
+    """
+    # Format based on tool type
+    if tool_name == "build_deck":
+        deck_name = result.get("deck_name", "Your Deck")
+        total_cards = result.get("total_cards", 60)
+        colors = result.get("colors", [])
+        theme_cards = result.get("theme_cards", 0)
+        cards = result.get("cards", {})
+        lands = result.get("lands", {})
+        notes = result.get("notes", "")
+        warnings = result.get("warnings", [])
+        assumptions = result.get("assumptions", "")
+
+        # Build deck list
+        lines = [
+            f"# {deck_name}",
+            f"**{total_cards} cards** | Colors: {', '.join(colors) or 'Colorless'}",
+            "",
+        ]
+
+        if assumptions:
+            lines.append(assumptions)
+            lines.append("")
+
+        # Non-land cards
+        if cards:
+            lines.append("## Cards")
+            for card_name, count in cards.items():
+                lines.append(f"- {count}x {card_name}")
+            lines.append("")
+
+        # Lands
+        if lands:
+            lines.append("## Lands")
+            for land_name, count in lands.items():
+                lines.append(f"- {count}x {land_name}")
+            lines.append("")
+
+        if notes:
+            lines.append(f"**Strategy:** {notes}")
+            lines.append("")
+
+        if warnings:
+            lines.append("**Warnings:**")
+            for w in warnings:
+                lines.append(f"- {w}")
+            lines.append("")
+
+        lines.append(f"Found {theme_cards} theme cards in your collection.")
+        lines.append("")
+        lines.append("Would you like me to export this deck for Arena import?")
+
+        content = "\n".join(lines)
+
+    elif tool_name == "search_collection":
+        results_list = result.get("results", [])
+        total = result.get("total", len(results_list))
+        query = result.get("query", "")
+
+        if not results_list:
+            content = f"I didn't find any cards matching '{query}' in your collection."
+        else:
+            lines = [f"Found {total} cards matching '{query}':", ""]
+            for card in results_list[:20]:  # Limit display
+                name = card.get("name", "Unknown")
+                count = card.get("count", 1)
+                lines.append(f"- {count}x {name}")
+            if total > 20:
+                lines.append(f"... and {total - 20} more")
+            content = "\n".join(lines)
+
+    elif tool_name == "find_synergies":
+        synergies = result.get("synergies", [])
+        card_name = result.get("card_name", "that card")
+
+        if not synergies:
+            content = f"I didn't find strong synergies for {card_name} in your collection."
+        else:
+            lines = [f"Cards that synergize with {card_name}:", ""]
+            for syn in synergies[:15]:
+                name = syn.get("name", "Unknown")
+                reason = syn.get("reason", "")
+                lines.append(f"- **{name}**: {reason}")
+            content = "\n".join(lines)
+
+    elif tool_name == "export_to_arena":
+        arena_text = result.get("arena_export", result.get("export", ""))
+        content = (
+            f"Here's your deck ready for Arena import:\n\n```\n{arena_text}\n```\n\n"
+            "Copy this text and paste it into MTG Arena's deck import."
+        )
+
+    elif tool_name == "improve_deck":
+        suggestions = result.get("suggestions", [])
+        analysis = result.get("analysis", "")
+
+        lines = ["## Deck Improvement Suggestions", ""]
+        if analysis:
+            lines.append(analysis)
+            lines.append("")
+        for sug in suggestions[:10]:
+            remove = sug.get("remove", "")
+            add = sug.get("add", "")
+            reason = sug.get("reason", "")
+            lines.append(f"- Replace **{remove}** with **{add}**: {reason}")
+        content = "\n".join(lines)
+
+    elif tool_name == "get_collection_stats":
+        total = result.get("total_cards", 0)
+        unique = result.get("unique_cards", 0)
+        content = f"Your collection has **{total:,} cards** ({unique:,} unique cards)."
+
+    elif tool_name in ("get_deck_recommendations", "list_meta_decks"):
+        decks = result.get("decks", result.get("recommendations", []))
+        if not decks:
+            content = "No meta decks found for this format."
+        else:
+            lines = ["## Available Meta Decks", ""]
+            for deck in decks[:10]:
+                name = deck.get("name", "Unknown")
+                completion = deck.get("completion_percentage", deck.get("completion", 0))
+                lines.append(f"- **{name}**: {completion:.0f}% complete")
+            content = "\n".join(lines)
+
+    elif tool_name == "calculate_deck_distance":
+        deck_name = result.get("deck_name", "the deck")
+        completion = result.get("completion_percentage", 0)
+        missing = result.get("missing_cards", [])
+
+        lines = [f"## {deck_name}", f"**{completion:.0f}% complete**", ""]
+        if missing:
+            lines.append("Missing cards:")
+            for card in missing[:15]:
+                name = card.get("name", "Unknown")
+                count = card.get("count", 1)
+                lines.append(f"- {count}x {name}")
+        content = "\n".join(lines)
+
+    else:
+        # Generic fallback - just confirm success
+        content = f"Done! The {tool_name.replace('_', ' ')} operation completed successfully."
 
     return ChatResponse(
         message=ChatMessage(role="assistant", content=content),
@@ -325,7 +541,8 @@ async def _process_tool_calls(
     """
     Execute tool calls and return results with terminal outcome detection.
 
-    TERMINAL OUTCOMES (no retries allowed):
+    TERMINAL OUTCOMES (no further LLM calls allowed):
+    - SUCCESS: Tool returned valid result → terminal (exit loop)
     - KnownError exception → terminal
     - RefusalError exception → terminal
     - Any other exception → terminal
@@ -338,6 +555,8 @@ async def _process_tool_calls(
     is_terminal = False
     terminal_reason = TerminalReason.NONE
     error_message: str | None = None
+    success_tool_name: str | None = None
+    success_result: dict[str, Any] | None = None
 
     for tool_call in tool_calls:
         try:
@@ -361,6 +580,20 @@ async def _process_tool_calls(
                     extra={
                         "tool": tool_call.name,
                         "error": error_message,
+                        "terminal": True,
+                    },
+                )
+            # TERMINAL SUCCESS: Tool completed successfully with valid result
+            # This is the key fix - successful tool calls are TERMINAL
+            elif _is_terminal_success(tool_call.name, result):
+                is_terminal = True
+                terminal_reason = TerminalReason.SUCCESS
+                success_tool_name = tool_call.name
+                success_result = result if isinstance(result, dict) else None
+                logger.info(
+                    "tool_terminal_success",
+                    extra={
+                        "tool": tool_call.name,
                         "terminal": True,
                     },
                 )
@@ -446,6 +679,8 @@ async def _process_tool_calls(
         is_terminal=is_terminal,
         terminal_reason=terminal_reason,
         error_message=error_message,
+        success_tool_name=success_tool_name,
+        success_result=success_result,
     )
 
 
@@ -564,7 +799,27 @@ async def chat(
             # Do NOT continue loop, do NOT make another LLM call
             if tool_result.is_terminal:
                 ctx.finalize(tool_result.terminal_reason, tool_result.error_message or "")
-                # IMMEDIATE RETURN — no further code execution in this request
+
+                # TERMINAL SUCCESS: Format result directly, skip LLM
+                if (
+                    tool_result.terminal_reason == TerminalReason.SUCCESS
+                    and tool_result.success_tool_name
+                    and tool_result.success_result
+                ):
+                    logger.info(
+                        "terminal_success_exit",
+                        extra={
+                            "tool": tool_result.success_tool_name,
+                            "llm_calls": ctx.llm_call_count,
+                        },
+                    )
+                    return _format_terminal_success_response(
+                        tool_result.success_tool_name,
+                        tool_result.success_result,
+                        tool_calls_made,
+                    )
+
+                # TERMINAL FAILURE: Return error response
                 return _create_terminal_response(ctx, tool_calls_made)
 
             # Add assistant response and tool results to messages for next iteration

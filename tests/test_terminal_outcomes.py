@@ -131,20 +131,28 @@ class TestTerminalOutcomeClassification:
         assert result.error_message == "No cards found for theme"
 
     @pytest.mark.asyncio
-    async def test_successful_tool_is_not_terminal(
+    async def test_successful_tool_is_terminal_success(
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
     ) -> None:
-        """Successful tool execution is not terminal."""
+        """
+        Successful tool execution IS terminal (with SUCCESS reason).
+
+        CRITICAL INVARIANT: Successful tool calls must be terminal to prevent
+        the chat loop from continuing and exhausting the LLM budget.
+        """
         with patch(
             "forgebreaker.api.chat.execute_tool",
-            return_value={"deck_name": "Goblin Deck", "cards": {"Goblin Guide": 4}},
+            return_value={"deck_name": "Goblin Deck", "cards": {"Goblin Guide": 4}, "success": True},
         ):
             result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
 
-        assert result.is_terminal is False
-        assert result.terminal_reason == TerminalReason.NONE
+        # SUCCESS is now terminal - this is the key fix for the budget bug
+        assert result.is_terminal is True
+        assert result.terminal_reason == TerminalReason.SUCCESS
+        assert result.success_tool_name == "build_deck"
+        assert result.success_result is not None
         assert result.error_message is None
 
 
@@ -220,12 +228,16 @@ class TestNoRetryAfterTerminal:
 class TestSingleShotSuccess:
     """Tests the single-shot success invariant."""
 
-    def test_successful_tool_returns_results(self) -> None:
+    def test_successful_tool_returns_results_as_terminal(self) -> None:
         """
-        Contract: Successful tool completion produces usable results.
+        Contract: Successful tool completion is TERMINAL.
 
-        After a tool succeeds, the results should be complete and
-        ready for Claude to format into a final response.
+        After a tool succeeds:
+        - The results are complete and ready for formatting
+        - is_terminal=True (SUCCESS) prevents any further LLM calls
+        - The response is formatted deterministically without LLM
+
+        This is the key fix for the budget exhaustion bug.
         """
         # Verify the result structure for successful tool calls
         result = ToolProcessingResult(
@@ -233,15 +245,18 @@ class TestSingleShotSuccess:
                 {
                     "type": "tool_result",
                     "tool_use_id": "test-id",
-                    "content": json.dumps({"deck_name": "Goblin Deck", "cards": {}}),
+                    "content": json.dumps({"deck_name": "Goblin Deck", "cards": {}, "success": True}),
                 }
             ],
-            is_terminal=False,
-            terminal_reason=TerminalReason.NONE,
+            is_terminal=True,  # SUCCESS is now terminal
+            terminal_reason=TerminalReason.SUCCESS,
+            success_tool_name="build_deck",
+            success_result={"deck_name": "Goblin Deck", "cards": {}, "success": True},
         )
 
-        # Success case should not be terminal (allows formatting call)
-        assert result.is_terminal is False
+        # Success case IS terminal - no further LLM calls allowed
+        assert result.is_terminal is True
+        assert result.terminal_reason == TerminalReason.SUCCESS
         assert len(result.results) == 1
 
     def test_max_llm_calls_per_request_is_reasonable(self) -> None:
@@ -300,6 +315,7 @@ class TestTerminalReasonDocumentation:
         Document all terminal reasons.
 
         TERMINAL OUTCOMES:
+        - SUCCESS: Tool completed successfully with valid result
         - TOOL_ERROR: Exception during tool execution
         - TOOL_RETURNED_ERROR: Tool returned {"error": ...}
         - KNOWN_FAILURE: KnownError exception
@@ -307,10 +323,11 @@ class TestTerminalReasonDocumentation:
         - BUDGET_EXHAUSTED: Budget limit hit
 
         NON-TERMINAL:
-        - NONE: Tool succeeded, continue to formatting
+        - NONE: Unknown/unclassified tool (allows continuation)
         """
         expected_reasons = {
             "none",
+            "success",  # NEW: successful completion is now terminal
             "tool_error",
             "tool_returned_error",
             "known_failure",
