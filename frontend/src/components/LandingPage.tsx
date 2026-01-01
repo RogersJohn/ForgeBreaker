@@ -1,20 +1,9 @@
-import { useState } from 'react'
-
 interface LandingPageProps {
-  onSetUserId: (userId: string) => void
+  onStart: () => void
   isBackendConnected: boolean
 }
 
-export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProps) {
-  const [userIdInput, setUserIdInput] = useState('')
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (userIdInput.trim()) {
-      onSetUserId(userIdInput.trim())
-    }
-  }
-
+export function LandingPage({ onStart, isBackendConnected }: LandingPageProps) {
   return (
     <div className="min-h-[calc(100vh-var(--header-height,120px))] flex flex-col items-center justify-center px-4">
       {/* Hero - Lead with the question */}
@@ -72,7 +61,7 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
         />
       </div>
 
-      {/* Login Form */}
+      {/* Start Buttons */}
       <div
         className="rounded-lg shadow p-8 w-full max-w-md mb-10"
         style={{
@@ -80,43 +69,41 @@ export function LandingPage({ onSetUserId, isBackendConnected }: LandingPageProp
           border: '1px solid var(--color-border)',
         }}
       >
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <label
-            htmlFor="username"
-            className="text-sm font-medium"
-            style={{ color: 'var(--color-text-secondary)' }}
+        <div className="flex flex-col gap-4">
+          <button
+            onClick={onStart}
+            disabled={!isBackendConnected}
+            className="w-full px-6 py-3 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            style={{ backgroundColor: 'var(--color-accent-primary)', color: 'white' }}
           >
-            Enter a username to start exploring
-          </label>
-          <div className="flex gap-3">
-            <input
-              id="username"
-              type="text"
-              value={userIdInput}
-              onChange={(e) => setUserIdInput(e.target.value)}
-              placeholder="Your username"
-              className="flex-1 px-4 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#e94560]"
-              style={{
-                backgroundColor: 'var(--color-bg-elevated)',
-                border: '1px solid var(--color-border)',
-                color: 'var(--color-text-primary)',
-              }}
-            />
-            <button
-              type="submit"
-              disabled={!userIdInput.trim()}
-              className="px-6 py-2 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
-              style={{ backgroundColor: 'var(--color-accent-primary)', color: 'white' }}
-            >
-              Start
-            </button>
+            Get Started
+          </button>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-border)' }} />
+            <span className="text-xs" style={{ color: 'var(--color-text-secondary)' }}>or</span>
+            <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-border)' }} />
           </div>
+          <button
+            onClick={onStart}
+            disabled={!isBackendConnected}
+            className="w-full px-6 py-3 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+            style={{
+              backgroundColor: 'var(--color-bg-elevated)',
+              color: 'var(--color-text-primary)',
+              border: '1px solid var(--color-border)',
+            }}
+          >
+            Try with Sample Collection
+          </button>
+          <p className="text-xs text-center" style={{ color: 'var(--color-text-secondary)' }}>
+            No MTG Arena account needed—explore with sample data first.
+          </p>
           {isBackendConnected && (
-            <p className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>
+            <p className="text-xs text-center" style={{ color: 'var(--color-text-secondary)' }}>
               Backend connected
             </p>
           )}
-        </form>
+        </div>
       </div>
 
       {/* What ForgeBreaker Does NOT Do */}

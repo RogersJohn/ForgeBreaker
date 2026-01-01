@@ -9,9 +9,20 @@ import { DeckDetail } from './components/DeckDetail'
 import { LandingPage } from './components/LandingPage'
 import { TabNav, type TabId } from './components/TabNav'
 
+// Generate a stable UUID for this browser session
+function getOrCreateUserId(): string {
+  const stored = localStorage.getItem('forgebreaker_user_id')
+  if (stored) return stored
+  const newId = crypto.randomUUID()
+  localStorage.setItem('forgebreaker_user_id', newId)
+  return newId
+}
+
 function App() {
-  const [userId, setUserId] = useState(() => {
-    return localStorage.getItem('forgebreaker_user_id') || ''
+  // User ID is auto-generated, not user-supplied
+  const [userId] = useState(() => getOrCreateUserId())
+  const [hasStarted, setHasStarted] = useState(() => {
+    return localStorage.getItem('forgebreaker_started') === 'true'
   })
   const [selectedDeck, setSelectedDeck] = useState<DeckResponse | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('chat')
@@ -30,9 +41,14 @@ function App() {
     retry: false,
   })
 
-  const handleSetUserId = (newUserId: string) => {
-    setUserId(newUserId)
-    localStorage.setItem('forgebreaker_user_id', newUserId)
+  const handleStart = () => {
+    setHasStarted(true)
+    localStorage.setItem('forgebreaker_started', 'true')
+  }
+
+  const handleReset = () => {
+    setHasStarted(false)
+    localStorage.removeItem('forgebreaker_started')
   }
 
   return (
@@ -53,25 +69,20 @@ function App() {
               <p style={{ color: 'var(--color-text-secondary)' }}>Understand your deck, not just build it</p>
             </div>
 
-            {userId && (
+            {hasStarted && (
               <div className="flex items-center gap-4">
                 <TabNav activeTab={activeTab} onTabChange={handleTabChange} />
-                <div
-                  className="flex items-center gap-3 px-4 py-2 rounded-lg"
-                  style={{ backgroundColor: 'var(--color-bg-elevated)' }}
+                <button
+                  onClick={handleReset}
+                  className="text-sm px-3 py-1.5 rounded hover:opacity-80 transition-opacity"
+                  style={{
+                    backgroundColor: 'var(--color-bg-elevated)',
+                    color: 'var(--color-text-secondary)',
+                    border: '1px solid var(--color-border)',
+                  }}
                 >
-                  <span style={{ color: 'var(--color-text-secondary)' }}>{userId}</span>
-                  <button
-                    onClick={() => {
-                      setUserId('')
-                      localStorage.removeItem('forgebreaker_user_id')
-                    }}
-                    className="text-sm px-2 py-1 rounded hover:opacity-80 transition-opacity"
-                    style={{ color: 'var(--color-accent-primary)' }}
-                  >
-                    Logout
-                  </button>
-                </div>
+                  Reset
+                </button>
               </div>
             )}
           </div>
@@ -97,9 +108,9 @@ function App() {
         )}
 
         {/* Landing Page or Main App */}
-        {!userId ? (
+        {!hasStarted ? (
           <LandingPage
-            onSetUserId={handleSetUserId}
+            onStart={handleStart}
             isBackendConnected={!!health}
           />
         ) : (

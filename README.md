@@ -211,6 +211,30 @@ npm run dev
 
 ---
 
+## Security Model
+
+ForgeBreaker is a **portfolio demonstration project**, not a production service.
+
+**What this project demonstrates:**
+- Clean API architecture with FastAPI
+- Domain modeling for a complex problem space
+- Test-driven development with high coverage
+- LLM integration via Claude API
+
+**What this project does NOT implement:**
+- Authentication or authorization
+- Secure user identity (browser UUIDs are used for session continuity, not security)
+- Data privacy guarantees
+- Multi-tenant isolation
+
+**CORS is intentionally open.** The API accepts requests from any origin. This is appropriate for a demo project where the goal is showcasing architecture, not protecting user data.
+
+**User identifiers are browser-generated UUIDs.** They provide session continuity across page reloads, nothing more. Anyone with the UUID can access that "user's" data. This is acceptable because the only data stored is card collection lists with no real-world value.
+
+If you're evaluating this project for an interview: the security decisions here are intentional and appropriate for the demo context. Production deployment would require authentication, proper CORS configuration, and rate limiting—none of which are the focus of this demonstration.
+
+---
+
 ## License
 
 MIT

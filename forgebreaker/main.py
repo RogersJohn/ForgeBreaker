@@ -58,9 +58,11 @@ app.include_router(distance_router)
 app.include_router(health_router)
 app.include_router(stress_router)
 
+# CORS: Open access is intentional for this demo project.
+# See README "Security Model" section for context.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Tighten in production
+    allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
