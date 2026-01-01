@@ -84,10 +84,14 @@ def _is_terminal_success(tool_name: str, result: Any) -> bool:
 
     A result is terminally successful if:
     1. The tool is in TERMINAL_SUCCESS_TOOLS
-    2. The result is a dict with "success": True OR contains valid data
+    2. The result is a dict with "success": True AND has actual content
     3. No error is present in the result
+    4. The result is NOT empty/trivial
 
     This is a DETERMINISTIC check - no heuristics.
+
+    IMPORTANT: Empty results (0 cards, no matches) are NOT terminal success.
+    They should be returned to the LLM for explanation or retry.
     """
     if tool_name not in TERMINAL_SUCCESS_TOOLS:
         return False
@@ -99,14 +103,33 @@ def _is_terminal_success(tool_name: str, result: Any) -> bool:
     if result.get("error"):
         return False
 
-    # Explicit success flag
+    # Check for warnings that indicate empty/failed results
+    warnings = result.get("warnings", [])
+    if warnings and any("no cards" in w.lower() or "not found" in w.lower() for w in warnings):
+        return False
+
+    # For build_deck: must have actual cards
+    if tool_name == "build_deck":
+        total_cards = result.get("total_cards", 0)
+        if total_cards == 0:
+            return False  # Empty deck is not a success
+        return result.get("success") is True
+
+    # For search_collection: must have results
+    if tool_name == "search_collection":
+        results = result.get("results", [])
+        return bool(results)  # No results is not terminal success
+
+    # For other tools with explicit success flag
     if result.get("success") is True:
         return True
 
     # For tools that return data without explicit success flag,
-    # check for presence of expected data fields
-    # (e.g., search_collection returns {"results": [...], "total": N})
-    return "results" in result or "cards" in result or "deck_name" in result
+    # check for presence of expected data fields with actual content
+    if "results" in result and result["results"]:
+        return True
+
+    return bool("cards" in result and result["cards"])
 
 
 @dataclass
