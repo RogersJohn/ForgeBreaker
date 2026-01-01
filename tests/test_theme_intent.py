@@ -135,7 +135,7 @@ class TestThemeMismatchDoesNotEmptyPool:
 
     def test_goblin_request_with_no_goblins_returns_nonempty_deck(self) -> None:
         """Goblin deck request with no goblins still produces a deck."""
-        # Collection with non-goblin cards only
+        # Collection with non-goblin cards only (enough for a 32-card deck)
         collection = Collection(
             cards={
                 "Lightning Bolt": 4,
@@ -151,29 +151,35 @@ class TestThemeMismatchDoesNotEmptyPool:
                 "colors": ["R"],
                 "cmc": 1,
                 "oracle_text": "Lightning Bolt deals 3 damage to any target.",
+                "mana_cost": "{R}",
             },
             "Shock": {
                 "type_line": "Instant",
                 "colors": ["R"],
                 "cmc": 1,
                 "oracle_text": "Shock deals 2 damage to any target.",
+                "mana_cost": "{R}",
             },
             "Mountain": {
                 "type_line": "Basic Land — Mountain",
                 "colors": [],
                 "cmc": 0,
                 "oracle_text": "",
+                "mana_cost": "",
             },
         }
 
         format_legality = {"standard": {"Lightning Bolt", "Shock", "Mountain"}}
 
-        request = DeckBuildRequest(theme="goblin tribal", format="standard")
+        # Request a smaller deck that matches available cards (8 nonland + 24 lands = 32)
+        request = DeckBuildRequest(
+            theme="goblin tribal", format="standard", deck_size=32, land_count=24
+        )
         deck = build_deck(request, collection, card_db, format_legality)
 
         # INVARIANT: Even with no goblins, we get a deck (not empty)
         # The deck should contain the available cards
-        assert deck.total_cards > 0
+        assert deck.total_cards == 32
         # Should have a warning about no theme match
         assert any("no cards matching" in w.lower() for w in deck.warnings)
 
@@ -182,7 +188,7 @@ class TestThemeMismatchDoesNotEmptyPool:
         CRITICAL TEST: If user owns >= 1 Goblin card,
         a Goblin deck request produces >= 1 Goblin card.
         """
-        # Collection with goblin cards
+        # Collection with goblin cards (8 nonland + 24 lands = 32 cards)
         collection = Collection(
             cards={
                 "Goblin Guide": 4,
@@ -197,28 +203,34 @@ class TestThemeMismatchDoesNotEmptyPool:
                 "colors": ["R"],
                 "cmc": 1,
                 "oracle_text": "Haste. Whenever Goblin Guide attacks...",
+                "mana_cost": "{R}",
             },
             "Goblin Chainwhirler": {
                 "type_line": "Creature — Goblin Warrior",  # Oracle subtype: Goblin
                 "colors": ["R"],
                 "cmc": 3,
                 "oracle_text": "First strike. When Goblin Chainwhirler enters...",
+                "mana_cost": "{R}{R}{R}",
             },
             "Mountain": {
                 "type_line": "Basic Land — Mountain",
                 "colors": [],
                 "cmc": 0,
                 "oracle_text": "",
+                "mana_cost": "",
             },
         }
 
         format_legality = {"standard": {"Goblin Guide", "Goblin Chainwhirler", "Mountain"}}
 
-        request = DeckBuildRequest(theme="goblin tribal", format="standard")
+        # Request 32-card deck (8 nonland + 24 lands)
+        request = DeckBuildRequest(
+            theme="goblin tribal", format="standard", deck_size=32, land_count=24
+        )
         deck = build_deck(request, collection, card_db, format_legality)
 
         # INVARIANT: Goblin deck contains goblins
-        assert deck.total_cards > 0
+        assert deck.total_cards == 32
         # Theme cards should be goblins
         assert "Goblin Guide" in deck.theme_cards or "Goblin Chainwhirler" in deck.theme_cards
         # Cards in deck should include goblins
@@ -234,6 +246,7 @@ class TestThemeMismatchDoesNotEmptyPool:
         If theme matching finds zero cards, the deck builder
         must fall back to all owned cards.
         """
+        # Collection with 4 nonland + 24 lands = 28 cards
         collection = Collection(
             cards={
                 "Serra Angel": 4,
@@ -247,23 +260,27 @@ class TestThemeMismatchDoesNotEmptyPool:
                 "colors": ["W"],
                 "cmc": 5,
                 "oracle_text": "Flying, vigilance",
+                "mana_cost": "{3}{W}{W}",
             },
             "Plains": {
                 "type_line": "Basic Land — Plains",
                 "colors": [],
                 "cmc": 0,
                 "oracle_text": "",
+                "mana_cost": "",
             },
         }
 
         format_legality = {"standard": {"Serra Angel", "Plains"}}
 
-        # Request for a tribe we don't own
-        request = DeckBuildRequest(theme="zombie tribal", format="standard")
+        # Request for a tribe we don't own with matching deck size
+        request = DeckBuildRequest(
+            theme="zombie tribal", format="standard", deck_size=28, land_count=24
+        )
         deck = build_deck(request, collection, card_db, format_legality)
 
-        # Must still build a deck (not empty)
-        assert deck.total_cards > 0
+        # Must still build a deck (exactly requested size)
+        assert deck.total_cards == 28
         # Should contain our available cards
         assert "Serra Angel" in deck.cards or "Plains" in deck.lands
 

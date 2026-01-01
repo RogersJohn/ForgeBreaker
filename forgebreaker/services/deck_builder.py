@@ -5,6 +5,9 @@ Builds playable decks from user's collection around a theme.
 
 INVARIANT: Theme matching is a PREFERENCE, not a FILTER.
 Zero theme matches must NOT produce an empty candidate pool.
+
+INVARIANT: Deck size is a HARD CONSTRAINT, not a preference.
+Decks must contain exactly the requested number of cards.
 """
 
 import logging
@@ -12,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from forgebreaker.models.collection import Collection
+from forgebreaker.models.failure import DeckSizeError
 from forgebreaker.models.theme_intent import (
     ThemeIntent,
     card_matches_tribe,
@@ -87,6 +91,7 @@ class BuiltDeck:
     role_counts: dict[str, int] = field(default_factory=dict)  # role -> count
     notes: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    card_scores: dict[str, float] = field(default_factory=dict)  # card_name -> score
 
 
 @dataclass
@@ -99,6 +104,136 @@ class DeckBuildRequest:
     include_cards: list[str] | None = None  # Must-include cards
     deck_size: int = 60  # Target deck size
     land_count: int = 24  # Target land count
+
+
+def enforce_deck_size(
+    deck: BuiltDeck,
+    requested_size: int,
+) -> BuiltDeck:
+    """
+    Enforce exact deck size as a hard invariant.
+
+    INVARIANT: Deck size is a HARD CONSTRAINT, not a preference.
+
+    This function runs after deck construction and before terminal success.
+    It guarantees that the returned deck has exactly the requested number of cards.
+
+    Enforcement rules:
+    1. If total > requested: trim lowest-scoring non-lands (deterministic)
+    2. If total < requested: raise DeckSizeError (hard failure)
+    3. If total == requested: return as-is
+
+    Args:
+        deck: The constructed deck with card_scores populated
+        requested_size: The exact number of cards required
+
+    Returns:
+        BuiltDeck with exactly requested_size cards
+
+    Raises:
+        DeckSizeError: If deck cannot meet the size requirement
+    """
+    initial_size = deck.total_cards
+
+    # Case 1: Exact size - no action needed
+    if initial_size == requested_size:
+        logger.info(
+            "DECK_SIZE_ENFORCED",
+            extra={
+                "requested_size": requested_size,
+                "initial_size": initial_size,
+                "final_size": requested_size,
+                "trimmed": 0,
+            },
+        )
+        return deck
+
+    # Case 2: Undersized - hard failure
+    if initial_size < requested_size:
+        logger.warning(
+            "DECK_SIZE_VIOLATION",
+            extra={
+                "requested_size": requested_size,
+                "actual_size": initial_size,
+                "shortfall": requested_size - initial_size,
+            },
+        )
+        raise DeckSizeError(
+            requested_size=requested_size,
+            actual_size=initial_size,
+            detail=f"Shortfall of {requested_size - initial_size} cards",
+        )
+
+    # Case 3: Oversized - deterministic trimming
+    excess = initial_size - requested_size
+
+    # Lock lands - only trim non-lands
+    # Sort non-land cards by score (lowest first for removal)
+    scored_cards: list[tuple[str, float, int]] = []
+    for card_name, qty in deck.cards.items():
+        score = deck.card_scores.get(card_name, 0.0)
+        scored_cards.append((card_name, score, qty))
+
+    # Sort by score ascending (lowest score = first to remove)
+    scored_cards.sort(key=lambda x: x[1])
+
+    cards_to_remove: dict[str, int] = {}
+    removed_count = 0
+
+    for card_name, _score, qty in scored_cards:
+        if removed_count >= excess:
+            break
+
+        # How many can we remove from this card?
+        can_remove = min(qty, excess - removed_count)
+        if can_remove > 0:
+            cards_to_remove[card_name] = can_remove
+            removed_count += can_remove
+
+    # Apply removals
+    new_cards = dict(deck.cards)
+    for card_name, remove_qty in cards_to_remove.items():
+        current_qty = new_cards[card_name]
+        new_qty = current_qty - remove_qty
+        if new_qty <= 0:
+            del new_cards[card_name]
+        else:
+            new_cards[card_name] = new_qty
+
+    # Update totals
+    new_nonland_count = sum(new_cards.values())
+    new_land_count = sum(deck.lands.values())
+    new_total = new_nonland_count + new_land_count
+
+    # Update theme_cards and support_cards lists to reflect removals
+    new_theme_cards = [name for name in deck.theme_cards if name in new_cards]
+    new_support_cards = [name for name in deck.support_cards if name in new_cards]
+
+    logger.info(
+        "DECK_SIZE_ENFORCED",
+        extra={
+            "requested_size": requested_size,
+            "initial_size": initial_size,
+            "final_size": new_total,
+            "trimmed": removed_count,
+        },
+    )
+
+    return BuiltDeck(
+        name=deck.name,
+        cards=new_cards,
+        total_cards=new_total,
+        colors=deck.colors,
+        theme_cards=new_theme_cards,
+        support_cards=new_support_cards,
+        lands=deck.lands,
+        archetype=deck.archetype,
+        mana_curve=_calculate_curve(new_cards, {}),  # Recalculate with empty db (safe)
+        role_counts=deck.role_counts,
+        notes=deck.notes,
+        warnings=deck.warnings,
+        card_scores=deck.card_scores,
+    )
 
 
 def build_deck(
@@ -237,14 +372,16 @@ def build_deck(
 
     # Step 3: Build deck
     deck: dict[str, int] = {}
+    card_scores: dict[str, float] = {}  # Track scores for size enforcement
     nonland_target = request.deck_size - request.land_count
 
-    # Add must-include cards first
+    # Add must-include cards first (highest priority score)
     if request.include_cards:
         for card_name in request.include_cards:
             owned = collection.get_quantity(card_name)
             if owned > 0 and card_name in legal_cards:
                 deck[card_name] = min(owned, 4)
+                card_scores[card_name] = 100.0  # Must-include = highest score
             else:
                 warnings.append(f"Cannot include {card_name} - not owned or not legal")
 
@@ -263,9 +400,11 @@ def build_deck(
     # Add cards that fill curve gaps first
     scored_theme.sort(key=lambda x: -x[2])
 
-    for card_name, qty, _, card_data in scored_theme:
+    for card_name, qty, score, card_data in scored_theme:
         add_qty = min(qty, 4)
         deck[card_name] = add_qty
+        # Theme cards get base score of 10 + curve_score (range 10-11)
+        card_scores[card_name] = 10.0 + score
         # Update curve after adding
         cmc = card_data.get("cmc", 2)
         bucket = _get_cmc_bucket(cmc)
@@ -293,6 +432,8 @@ def build_deck(
         for card_name, qty in support:
             deck[card_name] = qty
             support_cards.append(card_name)
+            # Support cards get base score of 5 (lower than theme cards)
+            card_scores[card_name] = 5.0
 
     current_count = sum(deck.values())
 
@@ -338,7 +479,8 @@ def build_deck(
     elif archetype == "control" and avg_cmc < 2.5:
         warnings.append(f"Control deck avg CMC is {avg_cmc:.1f}. May lack late-game power.")
 
-    return BuiltDeck(
+    # Build the preliminary deck
+    preliminary_deck = BuiltDeck(
         name=f"{request.theme.title()} Deck",
         cards=deck,
         total_cards=total_cards,
@@ -351,7 +493,12 @@ def build_deck(
         role_counts=role_counts,
         notes=notes,
         warnings=warnings,
+        card_scores=card_scores,
     )
+
+    # INVARIANT: Deck size is a HARD CONSTRAINT
+    # Enforce exact deck size before returning (may trim or raise DeckSizeError)
+    return enforce_deck_size(preliminary_deck, request.deck_size)
 
 
 def _matches_theme(card_name: str, card_data: dict[str, Any], theme: str) -> bool:

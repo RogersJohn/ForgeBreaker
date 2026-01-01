@@ -42,6 +42,7 @@ class FailureKind(str, Enum):
     VALIDATION_FAILED = "validation_failed"
     FORMAT_ILLEGAL = "format_illegal"
     BUDGET_EXCEEDED = "budget_exceeded"
+    DECK_SIZE_VIOLATION = "deck_size_violation"
 
     # Service failures
     SERVICE_UNAVAILABLE = "service_unavailable"
@@ -249,6 +250,35 @@ class RefusalError(Exception):
             message=self.message,
             detail=self.detail,
             suggestion=self.suggestion,
+        )
+
+
+class DeckSizeError(KnownError):
+    """
+    Exception for deck size constraint violations.
+
+    Raised when the deck builder cannot construct a deck of the requested size.
+    This is a hard failure - undersized decks are never acceptable.
+    """
+
+    def __init__(
+        self,
+        requested_size: int,
+        actual_size: int,
+        detail: str | None = None,
+    ):
+        self.requested_size = requested_size
+        self.actual_size = actual_size
+        message = (
+            f"Unable to construct a {requested_size}-card deck. "
+            f"Only {actual_size} cards available with the given constraints."
+        )
+        super().__init__(
+            kind=FailureKind.DECK_SIZE_VIOLATION,
+            message=message,
+            detail=detail,
+            suggestion="Try relaxing color or theme constraints, or import more cards.",
+            status_code=400,
         )
 
 

@@ -75,6 +75,7 @@ from forgebreaker.services.deck_builder import (
     BuiltDeck,
     DeckBuildRequest,
     build_deck,
+    enforce_deck_size,
     export_deck_to_arena,
     format_built_deck,
 )
@@ -110,6 +111,7 @@ __all__ = [
     "BuiltDeck",
     "DeckBuildRequest",
     "build_deck",
+    "enforce_deck_size",
     "export_deck_to_arena",
     "format_built_deck",
     "SynergyResult",

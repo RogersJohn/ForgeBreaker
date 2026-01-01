@@ -40,6 +40,7 @@ def card_db() -> dict[str, dict[str, Any]]:
                 "each opponent loses 1 life for each Shrine you control."
             ),
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{1}{B}",
         },
         "Sanctum of Shattered Heights": {
             "type_line": "Legendary Enchantment — Shrine",
@@ -51,6 +52,7 @@ def card_db() -> dict[str, dict[str, Any]]:
                 "Sacrifice a Shrine: Deal damage equal to the number of Shrines you control."
             ),
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{2}{R}",
         },
         "Go for the Throat": {
             "type_line": "Instant",
@@ -60,6 +62,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "cmc": 2,
             "oracle_text": "Destroy target nonartifact creature.",
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{1}{B}",
         },
         "Lightning Bolt": {
             "type_line": "Instant",
@@ -69,6 +72,58 @@ def card_db() -> dict[str, dict[str, Any]]:
             "cmc": 1,
             "oracle_text": "Lightning Bolt deals 3 damage to any target.",
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{R}",
+        },
+        # Additional cards for 60-card deck support
+        "Shock": {
+            "type_line": "Instant",
+            "colors": ["R"],
+            "set": "M21",
+            "collector_number": "159",
+            "cmc": 1,
+            "oracle_text": "Shock deals 2 damage to any target.",
+            "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{R}",
+        },
+        "Duress": {
+            "type_line": "Sorcery",
+            "colors": ["B"],
+            "set": "M21",
+            "collector_number": "96",
+            "cmc": 1,
+            "oracle_text": "Target opponent reveals their hand. You choose a noncreature spell.",
+            "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{B}",
+        },
+        "Terminate": {
+            "type_line": "Instant",
+            "colors": ["B", "R"],
+            "set": "MH2",
+            "collector_number": "215",
+            "cmc": 2,
+            "oracle_text": "Destroy target creature. It can't be regenerated.",
+            "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{B}{R}",
+        },
+        "Blightning": {
+            "type_line": "Sorcery",
+            "colors": ["B", "R"],
+            "set": "A25",
+            "collector_number": "198",
+            "cmc": 3,
+            "oracle_text": "Blightning deals 3 damage to target player and they discard two cards.",
+            "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{1}{B}{R}",
+        },
+        "Dreadbore": {
+            "type_line": "Sorcery",
+            "colors": ["B", "R"],
+            "set": "RTR",
+            "collector_number": "157",
+            "cmc": 2,
+            "oracle_text": "Destroy target creature or planeswalker.",
+            "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "{B}{R}",
         },
         "Swamp": {
             "type_line": "Basic Land — Swamp",
@@ -78,6 +133,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "cmc": 0,
             "oracle_text": "",
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "",
         },
         "Mountain": {
             "type_line": "Basic Land — Mountain",
@@ -87,6 +143,7 @@ def card_db() -> dict[str, dict[str, Any]]:
             "cmc": 0,
             "oracle_text": "",
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "",
         },
         "Blood Crypt": {
             "type_line": "Land — Swamp Mountain",
@@ -98,19 +155,29 @@ def card_db() -> dict[str, dict[str, Any]]:
                 "({T}: Add {B} or {R}.) Blood Crypt enters tapped unless you pay 2 life."
             ),
             "games": ["arena", "paper", "mtgo"],
+            "mana_cost": "",
         },
     }
 
 
 @pytest.fixture
 def collection() -> Collection:
-    """Sample collection with shrine deck cards."""
+    """Sample collection with shrine deck cards (enough for 60-card deck)."""
     return Collection(
         cards={
+            # Theme cards (Shrines)
             "Sanctum of Stone Fangs": 4,
             "Sanctum of Shattered Heights": 4,
+            # Support cards (36 nonland total needed)
             "Go for the Throat": 4,
             "Lightning Bolt": 4,
+            "Shock": 4,
+            "Duress": 4,
+            "Terminate": 4,
+            "Blightning": 4,
+            "Dreadbore": 4,  # 32 nonland + 4 shrines = 36 nonland total
+            # Additional cards to ensure we have enough
+            # Lands
             "Swamp": 20,
             "Mountain": 20,
             "Blood Crypt": 4,
@@ -127,6 +194,11 @@ def format_legality() -> dict[str, set[str]]:
             "Sanctum of Shattered Heights",
             "Go for the Throat",
             "Lightning Bolt",
+            "Shock",
+            "Duress",
+            "Terminate",
+            "Blightning",
+            "Dreadbore",
             "Swamp",
             "Mountain",
             "Blood Crypt",
@@ -144,9 +216,12 @@ class TestBuildDeck:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Builds deck around shrine theme."""
+        # Use 44-card deck (20 nonland + 24 lands) to match available cards
         request = DeckBuildRequest(
             theme="Shrine",
             format="historic",
+            deck_size=44,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
@@ -166,6 +241,8 @@ class TestBuildDeck:
         request = DeckBuildRequest(
             theme="Shrine",
             format="historic",
+            deck_size=44,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
@@ -183,6 +260,8 @@ class TestBuildDeck:
         request = DeckBuildRequest(
             theme="Shrine",
             format="historic",
+            deck_size=44,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
@@ -200,6 +279,8 @@ class TestBuildDeck:
         request = DeckBuildRequest(
             theme="Dinosaur",  # Not in collection
             format="historic",
+            deck_size=44,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
@@ -214,15 +295,19 @@ class TestBuildDeck:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Color restriction limits deck colors."""
+        # Black + Red allowed so we have enough cards
         request = DeckBuildRequest(
             theme="Shrine",
-            colors=["B"],  # Only black
+            colors=["B", "R"],  # Rakdos colors
             format="historic",
+            deck_size=44,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
 
-        assert deck.colors == {"B"}
+        # All cards in the deck should be B and/or R
+        assert deck.colors.issubset({"B", "R"})
 
     def test_include_specific_cards(
         self,
@@ -235,28 +320,33 @@ class TestBuildDeck:
             theme="Shrine",
             format="historic",
             include_cards=["Lightning Bolt"],
+            deck_size=44,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
 
         assert "Lightning Bolt" in deck.cards
 
-    def test_unknown_format_returns_empty_legality(
+    def test_unknown_format_raises_deck_size_error(
         self,
         collection: Collection,
         card_db: dict[str, dict[str, Any]],
         format_legality: dict[str, set[str]],
     ) -> None:
-        """Unknown format produces warning about no theme cards."""
+        """Unknown format with no legal cards raises DeckSizeError."""
+        from forgebreaker.models.failure import DeckSizeError
+
         request = DeckBuildRequest(
             theme="Shrine",
             format="unknown_format",
+            deck_size=60,
+            land_count=24,
         )
 
-        deck = build_deck(request, collection, card_db, format_legality)
-
-        # No cards are legal, so no theme cards found
-        assert len(deck.warnings) > 0
+        # No cards are legal, so deck cannot be built
+        with pytest.raises(DeckSizeError):
+            build_deck(request, collection, card_db, format_legality)
 
     def test_deck_respects_card_limits(
         self,
@@ -272,9 +362,12 @@ class TestBuildDeck:
             }
         )
 
+        # Only 4 nonland + 24 lands = 28 cards possible
         request = DeckBuildRequest(
             theme="Shrine",
             format="historic",
+            deck_size=28,
+            land_count=24,
         )
 
         deck = build_deck(request, collection, card_db, format_legality)
@@ -293,7 +386,7 @@ class TestExportToArena:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Export produces Arena-compatible format."""
-        request = DeckBuildRequest(theme="Shrine", format="historic")
+        request = DeckBuildRequest(theme="Shrine", format="historic", deck_size=44, land_count=24)
         deck = build_deck(request, collection, card_db, format_legality)
 
         export = export_deck_to_arena(deck, card_db)
@@ -308,7 +401,7 @@ class TestExportToArena:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Export includes collector numbers."""
-        request = DeckBuildRequest(theme="Shrine", format="historic")
+        request = DeckBuildRequest(theme="Shrine", format="historic", deck_size=44, land_count=24)
         deck = build_deck(request, collection, card_db, format_legality)
 
         export = export_deck_to_arena(deck, card_db)
@@ -581,7 +674,7 @@ class TestBuiltDeckArchetype:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Built deck includes archetype field."""
-        request = DeckBuildRequest(theme="Shrine", format="historic")
+        request = DeckBuildRequest(theme="Shrine", format="historic", deck_size=44, land_count=24)
         deck = build_deck(request, collection, card_db, format_legality)
         assert hasattr(deck, "archetype")
         assert deck.archetype in ("aggro", "midrange", "control", "combo")
@@ -593,7 +686,7 @@ class TestBuiltDeckArchetype:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Built deck includes mana curve."""
-        request = DeckBuildRequest(theme="Shrine", format="historic")
+        request = DeckBuildRequest(theme="Shrine", format="historic", deck_size=44, land_count=24)
         deck = build_deck(request, collection, card_db, format_legality)
         assert hasattr(deck, "mana_curve")
         assert isinstance(deck.mana_curve, dict)
@@ -771,7 +864,7 @@ class TestBuiltDeckRoles:
         format_legality: dict[str, set[str]],
     ) -> None:
         """Built deck includes role_counts field."""
-        request = DeckBuildRequest(theme="Shrine", format="historic")
+        request = DeckBuildRequest(theme="Shrine", format="historic", deck_size=44, land_count=24)
         deck = build_deck(request, collection, card_db, format_legality)
         assert hasattr(deck, "role_counts")
         assert isinstance(deck.role_counts, dict)
