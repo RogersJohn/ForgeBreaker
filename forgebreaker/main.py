@@ -27,6 +27,12 @@ from forgebreaker.models.failure import (
     finalize_response,
 )
 from forgebreaker.services.card_name_guard import CardNameLeakageError, get_guard_stats
+from forgebreaker.services.cost_controls import (
+    DailyBudgetExceededError,
+    LLMDisabledError,
+    RateLimitExceededError,
+    get_usage_tracker,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +111,50 @@ async def card_name_leakage_handler(_request: Request, exc: CardNameLeakageError
     )
 
 
+# =============================================================================
+# COST CONTROL EXCEPTION HANDLERS
+# =============================================================================
+
+
+@app.exception_handler(RateLimitExceededError)
+async def rate_limit_handler(_request: Request, exc: RateLimitExceededError) -> JSONResponse:
+    """Handle per-IP rate limit exceeded (HTTP 429)."""
+    logger.warning(
+        "RATE_LIMIT_RESPONSE",
+        extra={"ip_hash": exc.ip_hash, "limit": exc.limit},
+    )
+    response = finalize_response(exc.to_response())
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=response.model_dump(),
+    )
+
+
+@app.exception_handler(DailyBudgetExceededError)
+async def daily_budget_handler(_request: Request, exc: DailyBudgetExceededError) -> JSONResponse:
+    """Handle global daily budget exceeded (HTTP 503)."""
+    logger.warning(
+        "DAILY_BUDGET_RESPONSE",
+        extra={"limit_type": exc.limit_type, "used": exc.used, "limit": exc.limit},
+    )
+    response = finalize_response(exc.to_response())
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=response.model_dump(),
+    )
+
+
+@app.exception_handler(LLMDisabledError)
+async def llm_disabled_handler(_request: Request, exc: LLMDisabledError) -> JSONResponse:
+    """Handle LLM kill switch (HTTP 503)."""
+    logger.warning("LLM_DISABLED_RESPONSE")
+    response = finalize_response(exc.to_response())
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=response.model_dump(),
+    )
+
+
 @app.exception_handler(Exception)
 async def unknown_exception_handler(_request: Request, exc: Exception) -> JSONResponse:
     """
@@ -137,3 +187,25 @@ async def get_guard_diagnostics() -> dict[str, int | float]:
         This is useful for monitoring guard performance in production.
     """
     return get_guard_stats()
+
+
+@app.get("/diagnostics/usage-stats")
+async def get_usage_diagnostics() -> dict[str, int | str]:
+    """
+    Get current usage statistics and remaining budget.
+
+    Returns:
+        Dict with:
+        - date: Current date (UTC)
+        - unique_ips_today: Number of unique IP addresses seen today
+        - llm_calls_today: LLM calls made today (global)
+        - llm_calls_remaining: Remaining LLM calls before daily limit
+        - tokens_today: Tokens used today (global)
+        - tokens_remaining: Remaining tokens before daily limit
+        - requests_per_ip_limit: Per-IP daily request limit
+        - llm_calls_limit: Global daily LLM call limit
+        - tokens_limit: Global daily token limit
+
+    This endpoint is useful for monitoring usage and remaining budget.
+    """
+    return get_usage_tracker().get_diagnostics()

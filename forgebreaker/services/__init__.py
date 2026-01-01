@@ -71,6 +71,16 @@ from forgebreaker.services.collection_search import (
     format_search_results,
     search_collection,
 )
+from forgebreaker.services.cost_controls import (
+    DailyBudgetExceededError,
+    DailyUsageTracker,
+    LLMDisabledError,
+    RateLimitExceededError,
+    check_llm_enabled,
+    enforce_cost_controls,
+    get_usage_tracker,
+    reset_usage_tracker,
+)
 from forgebreaker.services.deck_builder import (
     BuiltDeck,
     DeckBuildRequest,
@@ -175,4 +185,13 @@ __all__ = [
     "record_clarification",
     "resolve_intent_with_policy",
     "should_ask_clarification",
+    # Cost controls
+    "DailyBudgetExceededError",
+    "DailyUsageTracker",
+    "LLMDisabledError",
+    "RateLimitExceededError",
+    "check_llm_enabled",
+    "enforce_cost_controls",
+    "get_usage_tracker",
+    "reset_usage_tracker",
 ]
