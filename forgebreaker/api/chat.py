@@ -33,7 +33,7 @@ from anthropic.types import (
     ToolResultBlockParam,
     ToolUseBlock,
 )
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,6 +47,10 @@ from forgebreaker.models.budget import (
     RequestBudget,
 )
 from forgebreaker.models.failure import FailureKind, KnownError, RefusalError
+from forgebreaker.services.cost_controls import (
+    enforce_cost_controls,
+    get_usage_tracker,
+)
 
 # =============================================================================
 # TERMINAL OUTCOME CLASSIFICATION
@@ -833,7 +837,8 @@ async def _process_tool_calls(
 
 @router.post("/", response_model=ChatResponse)
 async def chat(
-    request: ChatRequest,
+    chat_request: ChatRequest,
+    http_request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> ChatResponse:
     """
@@ -842,6 +847,12 @@ async def chat(
     Sends messages to Claude with access to deck and collection tools.
     Claude can look up collection stats, meta decks, and calculate
     what cards are needed for specific decks.
+
+    Cost controls (PR 105):
+    - LLM kill switch: LLM_ENABLED must be true
+    - Per-IP rate limit: 20 requests per day per IP
+    - Global daily budget: Max LLM calls and tokens per day
+    - Exceedance is terminal — no retries, no fallback
 
     Budget enforcement (PR 5):
     - Max LLM calls: MAX_LLM_CALLS_PER_REQUEST (hard cap)
@@ -865,7 +876,21 @@ async def chat(
 
     # Request-scoped context for terminal state tracking and observability
     # INVARIANT: Once ctx.is_finalized is True, NO LLM calls allowed
-    ctx = RequestContext(request_id=request_id, user_id=request.user_id)
+    ctx = RequestContext(request_id=request_id, user_id=chat_request.user_id)
+
+    # =========================================================================
+    # COST CONTROLS — Must be first, before any LLM logic
+    # =========================================================================
+    # Get client IP (handles proxies via X-Forwarded-For)
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    forwarded_for = http_request.headers.get("X-Forwarded-For")
+    if forwarded_for:
+        # Take the first IP in the chain (original client)
+        client_ip = forwarded_for.split(",")[0].strip()
+
+    # Enforce all cost controls (kill switch, IP rate limit, daily budget)
+    # Raises KnownError on violation — terminal, no LLM calls
+    enforce_cost_controls(client_ip, settings.llm_enabled)
 
     # CHAT_REQUEST_START
     logger.info(
@@ -895,7 +920,7 @@ async def chat(
 
     # Convert messages to Anthropic format
     messages: list[MessageParam] = []
-    for msg in request.messages:
+    for msg in chat_request.messages:
         messages.append({"role": cast(Any, msg.role), "content": msg.content})
 
     tools = _get_anthropic_tools()
@@ -956,6 +981,9 @@ async def chat(
             output_tokens = response.usage.output_tokens if response.usage else 0
             budget.record_call(input_tokens, output_tokens)
 
+            # COST CONTROLS: Record global LLM usage for daily budget tracking
+            get_usage_tracker().record_llm_call(input_tokens, output_tokens)
+
             # LLM_CALL_END
             logger.info(
                 "LLM_CALL_END",
@@ -996,7 +1024,9 @@ async def chat(
                 )
 
             # Process tool calls with server-injected user_id
-            tool_result = await _process_tool_calls(session, tool_use_blocks, request.user_id, ctx)
+            tool_result = await _process_tool_calls(
+                session, tool_use_blocks, chat_request.user_id, ctx
+            )
 
             # Record tool calls for response
             for block in tool_use_blocks:

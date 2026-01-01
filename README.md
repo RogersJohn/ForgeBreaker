@@ -127,6 +127,52 @@ ForgeBreaker simulates these scenarios and shows you the before/after fragility 
 
 ---
 
+## Usage Limits & Cost Controls
+
+ForgeBreaker is a **demo/portfolio project**. To prevent abuse and control LLM costs, the following limits are enforced:
+
+### Per-User Rate Limits
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| Requests per IP per day | 20 | Each IP address gets 20 chat requests per day |
+
+When you exceed the rate limit, you'll receive an HTTP 429 response with a friendly message explaining the limit resets at midnight UTC.
+
+### Global Daily Budgets
+
+| Limit | Default | Description |
+|-------|---------|-------------|
+| LLM calls per day | 500 | Total Claude API calls across all users |
+| Tokens per day | 500,000 | Total tokens (input + output) across all users |
+
+These are **hard caps**. When exceeded, the service returns HTTP 503 until the next day.
+
+### Emergency Kill Switch
+
+The `LLM_ENABLED` environment variable can be set to `false` to immediately disable all LLM functionality without redeploying. This is useful for:
+- Cost emergencies
+- Maintenance windows
+- API key rotation
+
+### Monitoring
+
+The `/diagnostics/usage-stats` endpoint shows current usage:
+- Unique IPs today
+- LLM calls made / remaining
+- Tokens used / remaining
+- Current limits
+
+### Why These Limits Exist
+
+1. **Cost control**: Claude API calls cost money. These limits prevent unexpected bills.
+2. **Fair access**: Per-IP limits ensure one user can't monopolize the service.
+3. **Demo appropriate**: This is a portfolio project, not a production service.
+
+If you're interested in running ForgeBreaker without limits, you can self-host with your own API key.
+
+---
+
 ## Technical Details
 
 ### Tech Stack
@@ -158,6 +204,10 @@ npm run dev
 |----------|-------------|
 | `DATABASE_URL` | PostgreSQL connection string |
 | `ANTHROPIC_API_KEY` | Claude API key (for chat) |
+| `LLM_ENABLED` | Kill switch for LLM (default: `true`) |
+| `REQUESTS_PER_IP_PER_DAY` | Per-IP rate limit (default: `20`) |
+| `MAX_LLM_CALLS_PER_DAY` | Global daily LLM call limit (default: `500`) |
+| `MAX_TOKENS_PER_DAY` | Global daily token limit (default: `500000`) |
 
 ---
 
