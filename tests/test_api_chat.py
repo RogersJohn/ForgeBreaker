@@ -336,14 +336,33 @@ class TestTerminalSuccessInvariant:
         """_is_terminal_success correctly identifies successful tool results."""
         from forgebreaker.api.chat import _is_terminal_success
 
-        # build_deck with success=True is terminal
-        assert _is_terminal_success("build_deck", {"success": True, "deck_name": "Test"})
+        # build_deck with success=True AND cards is terminal
+        assert _is_terminal_success(
+            "build_deck",
+            {"success": True, "deck_name": "Test", "total_cards": 60, "cards": {"Goblin": 4}},
+        )
+
+        # build_deck with 0 cards is NOT terminal (empty result)
+        assert not _is_terminal_success(
+            "build_deck", {"success": True, "deck_name": "Test", "total_cards": 0, "cards": {}}
+        )
 
         # build_deck with error is NOT terminal success
         assert not _is_terminal_success("build_deck", {"error": "No cards found"})
 
+        # build_deck with "no cards" warning is NOT terminal
+        assert not _is_terminal_success(
+            "build_deck",
+            {"success": True, "total_cards": 0, "warnings": ["No cards matching theme found"]},
+        )
+
         # search_collection with results is terminal
-        assert _is_terminal_success("search_collection", {"results": [], "total": 0})
+        assert _is_terminal_success(
+            "search_collection", {"results": [{"name": "Card"}], "total": 1}
+        )
+
+        # search_collection with empty results is NOT terminal
+        assert not _is_terminal_success("search_collection", {"results": [], "total": 0})
 
         # Unknown tool is NOT terminal
         assert not _is_terminal_success("unknown_tool", {"success": True})

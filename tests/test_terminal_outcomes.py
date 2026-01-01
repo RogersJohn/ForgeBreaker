@@ -137,14 +137,19 @@ class TestTerminalOutcomeClassification:
         mock_tool_call: MagicMock,
     ) -> None:
         """
-        Successful tool execution IS terminal (with SUCCESS reason).
+        Successful tool execution with actual content IS terminal (with SUCCESS reason).
 
-        CRITICAL INVARIANT: Successful tool calls must be terminal to prevent
-        the chat loop from continuing and exhausting the LLM budget.
+        CRITICAL INVARIANT: Successful tool calls with valid results must be terminal
+        to prevent the chat loop from continuing and exhausting the LLM budget.
         """
         with patch(
             "forgebreaker.api.chat.execute_tool",
-            return_value={"deck_name": "Goblin Deck", "cards": {"Goblin Guide": 4}, "success": True},
+            return_value={
+                "deck_name": "Goblin Deck",
+                "cards": {"Goblin Guide": 4},
+                "total_cards": 60,
+                "success": True,
+            },
         ):
             result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
 
@@ -154,6 +159,33 @@ class TestTerminalOutcomeClassification:
         assert result.success_tool_name == "build_deck"
         assert result.success_result is not None
         assert result.error_message is None
+
+    @pytest.mark.asyncio
+    async def test_empty_result_is_not_terminal_success(
+        self,
+        mock_session: AsyncMock,
+        mock_tool_call: MagicMock,
+    ) -> None:
+        """
+        Empty results (0 cards) are NOT terminal success.
+
+        The LLM should get a chance to explain or retry when no cards are found.
+        """
+        with patch(
+            "forgebreaker.api.chat.execute_tool",
+            return_value={
+                "deck_name": "Empty Deck",
+                "cards": {},
+                "total_cards": 0,
+                "success": True,
+                "warnings": ["No cards matching theme 'goblin' found in your collection"],
+            },
+        ):
+            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+
+        # Empty result should NOT be terminal success
+        assert result.is_terminal is False
+        assert result.terminal_reason == TerminalReason.NONE
 
 
 # =============================================================================
@@ -245,7 +277,9 @@ class TestSingleShotSuccess:
                 {
                     "type": "tool_result",
                     "tool_use_id": "test-id",
-                    "content": json.dumps({"deck_name": "Goblin Deck", "cards": {}, "success": True}),
+                    "content": json.dumps(
+                        {"deck_name": "Goblin Deck", "cards": {}, "success": True}
+                    ),
                 }
             ],
             is_terminal=True,  # SUCCESS is now terminal
