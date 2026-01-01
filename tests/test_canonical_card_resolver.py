@@ -2,10 +2,19 @@
 
 import pytest
 
-from forgebreaker.models.canonical_card import CanonicalCard, InventoryCard, OwnedCard
+from forgebreaker.models.canonical_card import (
+    CanonicalCard,
+    CardMetadata,
+    InventoryCard,
+    OwnedCard,
+    ResolvedCard,
+)
 from forgebreaker.models.failure import FailureKind, KnownError
 from forgebreaker.services.canonical_card_resolver import (
     CanonicalCardResolver,
+    ResolutionEvent,
+    ResolutionReason,
+    ResolutionReport,
     ResolutionResult,
 )
 
@@ -90,88 +99,256 @@ class TestInventoryCardModel:
 
 
 class TestCanonicalCardModel:
-    """Tests for CanonicalCard dataclass."""
+    """Tests for CanonicalCard dataclass (identity only)."""
 
     def test_creation(self) -> None:
-        """CanonicalCard can be created with required fields."""
+        """CanonicalCard can be created with identity fields only."""
         card = CanonicalCard(
             oracle_id="oracle-123",
             name="Lightning Bolt",
-            type_line="Instant",
-            colors=("R",),
-            legalities={"standard": "not_legal"},
         )
         assert card.oracle_id == "oracle-123"
         assert card.name == "Lightning Bolt"
-        assert card.type_line == "Instant"
-        assert card.colors == ("R",)
-        assert card.legalities == {"standard": "not_legal"}
-        assert card.arena_only is False  # Default
-
-    def test_arena_only_flag(self) -> None:
-        """arena_only can be explicitly set."""
-        card = CanonicalCard(
-            oracle_id="oracle-123",
-            name="Arena Exclusive",
-            type_line="Creature",
-            colors=(),
-            legalities={},
-            arena_only=True,
-        )
-        assert card.arena_only is True
 
     def test_frozen(self) -> None:
         """CanonicalCard is immutable."""
         card = CanonicalCard(
             oracle_id="oracle-123",
             name="Test",
-            type_line="Instant",
-            colors=(),
-            legalities={},
         )
         with pytest.raises(AttributeError):
             card.name = "Changed"  # type: ignore[misc]
 
+    def test_slots(self) -> None:
+        """CanonicalCard uses slots for memory efficiency."""
+        card = CanonicalCard(oracle_id="oracle-123", name="Test")
+        assert not hasattr(card, "__dict__")
+
+
+class TestCardMetadataModel:
+    """Tests for CardMetadata dataclass."""
+
+    def test_creation(self) -> None:
+        """CardMetadata can be created with semantic fields."""
+        meta = CardMetadata(
+            type_line="Instant",
+            colors=("R",),
+            legalities={"standard": "not_legal"},
+        )
+        assert meta.type_line == "Instant"
+        assert meta.colors == ("R",)
+        assert meta.legalities == {"standard": "not_legal"}
+
+    def test_frozen(self) -> None:
+        """CardMetadata is immutable."""
+        meta = CardMetadata(type_line="Instant", colors=(), legalities={})
+        with pytest.raises(AttributeError):
+            meta.type_line = "Sorcery"  # type: ignore[misc]
+
     def test_colors_is_tuple(self) -> None:
         """colors field uses tuple for immutability."""
-        card = CanonicalCard(
-            oracle_id="oracle-123",
-            name="Test",
+        meta = CardMetadata(type_line="Instant", colors=("W", "U"), legalities={})
+        assert isinstance(meta.colors, tuple)
+
+
+class TestResolvedCardModel:
+    """Tests for ResolvedCard dataclass."""
+
+    def test_creation(self) -> None:
+        """ResolvedCard combines identity and metadata."""
+        identity = CanonicalCard(oracle_id="oracle-123", name="Lightning Bolt")
+        metadata = CardMetadata(type_line="Instant", colors=("R",), legalities={})
+        resolved = ResolvedCard(identity=identity, metadata=metadata)
+
+        assert resolved.identity == identity
+        assert resolved.metadata == metadata
+        assert resolved.arena_only is False  # Default
+
+    def test_convenience_accessors(self) -> None:
+        """ResolvedCard has convenience property accessors."""
+        identity = CanonicalCard(oracle_id="oracle-123", name="Lightning Bolt")
+        metadata = CardMetadata(
             type_line="Instant",
-            colors=("W", "U"),
-            legalities={},
+            colors=("R",),
+            legalities={"standard": "not_legal"},
         )
-        assert isinstance(card.colors, tuple)
+        resolved = ResolvedCard(identity=identity, metadata=metadata)
+
+        assert resolved.oracle_id == "oracle-123"
+        assert resolved.name == "Lightning Bolt"
+        assert resolved.type_line == "Instant"
+        assert resolved.colors == ("R",)
+        assert resolved.legalities == {"standard": "not_legal"}
+
+    def test_arena_only_flag(self) -> None:
+        """arena_only can be explicitly set."""
+        identity = CanonicalCard(oracle_id="oracle-123", name="Arena Exclusive")
+        metadata = CardMetadata(type_line="Creature", colors=(), legalities={})
+        resolved = ResolvedCard(identity=identity, metadata=metadata, arena_only=True)
+
+        assert resolved.arena_only is True
+
+    def test_frozen(self) -> None:
+        """ResolvedCard is immutable."""
+        identity = CanonicalCard(oracle_id="oracle-123", name="Test")
+        metadata = CardMetadata(type_line="Instant", colors=(), legalities={})
+        resolved = ResolvedCard(identity=identity, metadata=metadata)
+
+        with pytest.raises(AttributeError):
+            resolved.arena_only = True  # type: ignore[misc]
 
 
 class TestOwnedCardModel:
     """Tests for OwnedCard dataclass."""
 
     def test_creation(self) -> None:
-        """OwnedCard pairs CanonicalCard with count."""
-        canonical = CanonicalCard(
-            oracle_id="oracle-123",
-            name="Lightning Bolt",
-            type_line="Instant",
-            colors=("R",),
-            legalities={},
-        )
-        owned = OwnedCard(card=canonical, count=4)
-        assert owned.card == canonical
+        """OwnedCard pairs ResolvedCard with count."""
+        identity = CanonicalCard(oracle_id="oracle-123", name="Lightning Bolt")
+        metadata = CardMetadata(type_line="Instant", colors=("R",), legalities={})
+        resolved = ResolvedCard(identity=identity, metadata=metadata)
+        owned = OwnedCard(card=resolved, count=4)
+
+        assert owned.card == resolved
         assert owned.count == 4
 
     def test_frozen(self) -> None:
         """OwnedCard is immutable."""
-        canonical = CanonicalCard(
-            oracle_id="oracle-123",
-            name="Test",
-            type_line="Instant",
-            colors=(),
-            legalities={},
-        )
-        owned = OwnedCard(card=canonical, count=4)
+        identity = CanonicalCard(oracle_id="oracle-123", name="Test")
+        metadata = CardMetadata(type_line="Instant", colors=(), legalities={})
+        resolved = ResolvedCard(identity=identity, metadata=metadata)
+        owned = OwnedCard(card=resolved, count=4)
+
         with pytest.raises(AttributeError):
             owned.count = 10  # type: ignore[misc]
+
+
+# =============================================================================
+# RESOLUTION REPORT TESTS
+# =============================================================================
+
+
+class TestResolutionReason:
+    """Tests for ResolutionReason enum."""
+
+    def test_success_reasons(self) -> None:
+        """Success reason codes are strings."""
+        assert ResolutionReason.RESOLVED.value == "resolved"
+        assert ResolutionReason.NORMALIZED.value == "normalized"
+        assert ResolutionReason.ARENA_FLAGGED.value == "arena_flagged"
+
+    def test_failure_reasons(self) -> None:
+        """Failure reason codes are strings."""
+        assert ResolutionReason.NOT_FOUND.value == "not_found"
+        assert ResolutionReason.NO_ORACLE_ID.value == "no_oracle_id"
+        assert ResolutionReason.INVALID_DATA.value == "invalid_data"
+
+
+class TestResolutionEvent:
+    """Tests for ResolutionEvent dataclass."""
+
+    def test_success_event(self) -> None:
+        """ResolutionEvent captures successful resolution."""
+        event = ResolutionEvent(
+            input_name="Lightning Bolt",
+            input_set_code="STA",
+            input_count=4,
+            reason=ResolutionReason.RESOLVED,
+            output_oracle_id="oracle-bolt-123",
+            output_name="Lightning Bolt",
+        )
+        assert event.reason == ResolutionReason.RESOLVED
+        assert event.output_oracle_id == "oracle-bolt-123"
+
+    def test_failure_event(self) -> None:
+        """ResolutionEvent captures failed resolution."""
+        event = ResolutionEvent(
+            input_name="Fake Card",
+            input_set_code="XXX",
+            input_count=4,
+            reason=ResolutionReason.NOT_FOUND,
+        )
+        assert event.reason == ResolutionReason.NOT_FOUND
+        assert event.output_oracle_id is None
+
+    def test_frozen(self) -> None:
+        """ResolutionEvent is immutable."""
+        event = ResolutionEvent(
+            input_name="Test",
+            input_set_code="DMU",
+            input_count=1,
+            reason=ResolutionReason.RESOLVED,
+        )
+        with pytest.raises(AttributeError):
+            event.reason = ResolutionReason.NOT_FOUND  # type: ignore[misc]
+
+
+class TestResolutionReport:
+    """Tests for ResolutionReport dataclass."""
+
+    def test_all_resolved_true_when_empty_rejected(self) -> None:
+        """all_resolved is True when no rejected cards."""
+        report = ResolutionReport(
+            resolved=(),
+            normalized=(),
+            arena_flagged=(),
+            rejected=(),
+        )
+        assert report.all_resolved is True
+
+    def test_all_resolved_false_when_has_rejected(self) -> None:
+        """all_resolved is False when rejected cards exist."""
+        event = ResolutionEvent(
+            input_name="Fake",
+            input_set_code="XXX",
+            input_count=1,
+            reason=ResolutionReason.NOT_FOUND,
+        )
+        report = ResolutionReport(
+            resolved=(),
+            normalized=(),
+            arena_flagged=(),
+            rejected=(event,),
+        )
+        assert report.all_resolved is False
+
+    def test_counts(self) -> None:
+        """Report provides correct counts."""
+        resolved_event = ResolutionEvent(
+            input_name="Bolt",
+            input_set_code="STA",
+            input_count=4,
+            reason=ResolutionReason.RESOLVED,
+        )
+        rejected_event = ResolutionEvent(
+            input_name="Fake",
+            input_set_code="XXX",
+            input_count=1,
+            reason=ResolutionReason.NOT_FOUND,
+        )
+        report = ResolutionReport(
+            resolved=(resolved_event,),
+            normalized=(),
+            arena_flagged=(),
+            rejected=(rejected_event,),
+        )
+        assert report.total_resolved == 1
+        assert report.total_rejected == 1
+
+    def test_get_rejected_names(self) -> None:
+        """get_rejected_names returns card names."""
+        events = [
+            ResolutionEvent(
+                input_name=f"Fake Card {i}",
+                input_set_code="XXX",
+                input_count=1,
+                reason=ResolutionReason.NOT_FOUND,
+            )
+            for i in range(10)
+        ]
+        report = ResolutionReport(rejected=tuple(events))
+        names = report.get_rejected_names(5)
+        assert len(names) == 5
+        assert names[0] == "Fake Card 0"
 
 
 # =============================================================================
@@ -235,14 +412,14 @@ class TestCanonicalCardResolver:
         assert result.owned_cards[0].count == 7  # 2 + 1 + 4
 
     def test_unresolved_card_tracked(self, resolver: CanonicalCardResolver) -> None:
-        """Unknown cards are tracked as unresolved."""
+        """Unknown cards are tracked as rejected in report."""
         inventory = [InventoryCard(name="Fake Card", set_code="XXX", count=4)]
         result = resolver.resolve(inventory)
 
         assert not result.all_resolved
-        assert len(result.unresolved) == 1
-        assert result.unresolved[0][0].name == "Fake Card"
-        assert "not found" in result.unresolved[0][1].lower()
+        assert result.report.total_rejected == 1
+        assert result.report.rejected[0].input_name == "Fake Card"
+        assert result.report.rejected[0].reason == ResolutionReason.NOT_FOUND
 
     def test_mixed_valid_invalid(self, resolver: CanonicalCardResolver) -> None:
         """Mix of valid and invalid cards tracked correctly."""
@@ -254,7 +431,18 @@ class TestCanonicalCardResolver:
 
         assert not result.all_resolved
         assert len(result.owned_cards) == 1
-        assert len(result.unresolved) == 1
+        assert result.report.total_rejected == 1
+
+    def test_report_includes_resolved_events(self, resolver: CanonicalCardResolver) -> None:
+        """Report includes events for resolved cards."""
+        inventory = [InventoryCard(name="Lightning Bolt", set_code="STA", count=4)]
+        result = resolver.resolve(inventory)
+
+        assert result.report.total_resolved == 1
+        event = result.report.resolved[0]
+        assert event.input_name == "Lightning Bolt"
+        assert event.reason == ResolutionReason.RESOLVED
+        assert event.output_oracle_id == "oracle-bolt-123"
 
 
 class TestArenaOnlyDetection:
@@ -268,7 +456,7 @@ class TestArenaOnlyDetection:
 
         assert result.all_resolved
         assert result.owned_cards[0].card.arena_only is True
-        assert result.arena_only_count == 1
+        assert result.report.total_arena_only == 1
 
     def test_not_arena_only_when_set_in_scryfall(self, resolver: CanonicalCardResolver) -> None:
         """Cards with known set codes are not flagged."""
@@ -294,6 +482,14 @@ class TestArenaOnlyDetection:
 
         assert result.all_resolved
         assert result.owned_cards[0].card.arena_only is False
+
+    def test_arena_flagged_in_report(self, resolver: CanonicalCardResolver) -> None:
+        """Arena-only cards appear in report's arena_flagged."""
+        inventory = [InventoryCard(name="Lightning Bolt", set_code="Y24", count=4)]
+        result = resolver.resolve(inventory)
+
+        assert len(result.report.arena_flagged) == 1
+        assert result.report.arena_flagged[0].reason == ResolutionReason.ARENA_FLAGGED
 
 
 class TestResolveOrFail:
@@ -347,27 +543,36 @@ class TestResolveOrFail:
         assert "and 5 more" in detail
 
 
+class TestResolveWithReport:
+    """Tests for resolve_with_report method."""
+
+    def test_returns_cards_and_report(self, resolver: CanonicalCardResolver) -> None:
+        """resolve_with_report returns both owned cards and report."""
+        inventory = [InventoryCard(name="Lightning Bolt", set_code="STA", count=4)]
+        owned, report = resolver.resolve_with_report(inventory)
+
+        assert len(owned) == 1
+        assert report.total_resolved == 1
+        assert report.all_resolved
+
+    def test_raises_on_failure(self, resolver: CanonicalCardResolver) -> None:
+        """resolve_with_report raises on any failure."""
+        inventory = [InventoryCard(name="Fake Card", set_code="XXX", count=4)]
+
+        with pytest.raises(KnownError) as exc_info:
+            resolver.resolve_with_report(inventory)
+
+        assert exc_info.value.kind == FailureKind.VALIDATION_FAILED
+
+
 class TestResolutionResult:
     """Tests for ResolutionResult dataclass."""
 
-    def test_all_resolved_true_when_empty_unresolved(self) -> None:
-        """all_resolved is True when no unresolved cards."""
-        result = ResolutionResult(
-            owned_cards=[],
-            unresolved=[],
-            arena_only_count=0,
-        )
+    def test_all_resolved_delegates_to_report(self) -> None:
+        """all_resolved delegates to report."""
+        report = ResolutionReport(resolved=(), normalized=(), arena_flagged=(), rejected=())
+        result = ResolutionResult(owned_cards=(), report=report)
         assert result.all_resolved is True
-
-    def test_all_resolved_false_when_has_unresolved(self) -> None:
-        """all_resolved is False when unresolved cards exist."""
-        inv = InventoryCard(name="Fake", set_code="XXX", count=1)
-        result = ResolutionResult(
-            owned_cards=[],
-            unresolved=[(inv, "not found")],
-            arena_only_count=0,
-        )
-        assert result.all_resolved is False
 
 
 # =============================================================================
@@ -405,3 +610,23 @@ class TestEndToEndResolution:
         assert card.type_line == "Instant"
         assert card.colors == ("R",)
         assert "historic" in card.legalities
+
+    def test_identity_metadata_separation(self, resolver: CanonicalCardResolver) -> None:
+        """Identity and metadata are properly separated."""
+        inventory = [InventoryCard(name="Lightning Bolt", set_code="STA", count=4)]
+        result = resolver.resolve(inventory)
+
+        card = result.owned_cards[0].card
+
+        # Identity is separate
+        assert card.identity.oracle_id == "oracle-bolt-123"
+        assert card.identity.name == "Lightning Bolt"
+
+        # Metadata is separate
+        assert card.metadata.type_line == "Instant"
+        assert card.metadata.colors == ("R",)
+        assert card.metadata.legalities == {
+            "standard": "not_legal",
+            "historic": "legal",
+            "modern": "legal",
+        }

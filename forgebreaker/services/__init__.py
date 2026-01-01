@@ -37,6 +37,9 @@ from forgebreaker.services.arena_sanitizer import (
 )
 from forgebreaker.services.canonical_card_resolver import (
     CanonicalCardResolver,
+    ResolutionEvent,
+    ResolutionReason,
+    ResolutionReport,
     ResolutionResult,
 )
 from forgebreaker.services.card_name_guard import (
@@ -96,6 +99,9 @@ from forgebreaker.services.synergy_finder import (
 __all__ = [
     # Canonical card resolution (collection import trust boundary)
     "CanonicalCardResolver",
+    "ResolutionEvent",
+    "ResolutionReason",
+    "ResolutionReport",
     "ResolutionResult",
     # Collection search
     "CardSearchResult",
