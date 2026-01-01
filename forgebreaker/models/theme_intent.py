@@ -8,6 +8,7 @@ All theme matching must go through ThemeIntent normalization first.
 import logging
 import re
 from dataclasses import dataclass
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +194,7 @@ def normalize_theme(raw_theme: str) -> ThemeIntent:
 
 def card_matches_tribe(
     card_name: str,
-    card_data: dict,
+    card_data: dict[str, Any],
     tribe: str,
 ) -> bool:
     """

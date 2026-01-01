@@ -400,6 +400,8 @@ def _matches_theme_intent(
     """
     # Primary: If we have a tribe, use oracle subtype matching
     if theme_intent.has_tribe():
+        # has_tribe() guarantees tribe is not None
+        assert theme_intent.tribe is not None
         return card_matches_tribe(card_name, card_data, theme_intent.tribe)
 
     # Fallback: No tribe extracted, use raw theme matching
