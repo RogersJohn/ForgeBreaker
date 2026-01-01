@@ -9,11 +9,19 @@ TERMINAL OUTCOME ENFORCEMENT:
 - KnownFailure exceptions are terminal — no retries
 - Successful tool completion allows ONE final LLM call for formatting
 - Budget exhaustion is terminal — already enforced
+
+OBSERVABILITY:
+- All logs are structured with request_id for correlation
+- Lifecycle events: CHAT_REQUEST_START, CHAT_REQUEST_TERMINATED
+- LLM events: LLM_CALL_START, LLM_CALL_END
+- Tool events: TOOL_CALL_START, TOOL_CALL_SUCCESS, TOOL_CALL_FAILURE
+- Terminal detection: TERMINAL_SUCCESS_DETECTED
 """
 
 import json
 import logging
-from dataclasses import dataclass
+import uuid
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Annotated, Any, cast
 
@@ -147,17 +155,27 @@ class ToolProcessingResult:
 
 @dataclass
 class RequestContext:
-    """Request-scoped context for tracking terminal state.
+    """Request-scoped context for tracking terminal state and observability.
 
     INVARIANT: Once is_finalized is True, NO LLM calls may be made.
     This is enforced by guard_llm_call() which must be called before
     every client.messages.create() invocation.
+
+    OBSERVABILITY: All logs include request_id and user_id for correlation.
     """
 
+    request_id: str = ""
+    user_id: str = ""
     is_finalized: bool = False
     terminal_reason: TerminalReason = TerminalReason.NONE
     terminal_message: str | None = None
     llm_call_count: int = 0
+    tool_call_count: int = 0
+    tools_invoked: list[str] = field(default_factory=list)
+
+    def _log_extra(self) -> dict[str, Any]:
+        """Base extra fields for all logs in this request."""
+        return {"request_id": self.request_id, "user_id": self.user_id}
 
     def finalize(self, reason: TerminalReason, message: str) -> None:
         """Mark request as finalized. No further LLM calls allowed."""
@@ -166,14 +184,7 @@ class RequestContext:
         self.is_finalized = True
         self.terminal_reason = reason
         self.terminal_message = message
-        logger.warning(
-            "request_finalized",
-            extra={
-                "reason": reason.value,
-                "terminal_msg": message,
-                "llm_calls_made": self.llm_call_count,
-            },
-        )
+        # Note: CHAT_REQUEST_TERMINATED is logged separately at request end
 
     def guard_llm_call(self) -> None:
         """Guard that MUST be called before every LLM invocation.
@@ -196,8 +207,23 @@ class RequestContext:
         """Record that an LLM call was made."""
         self.llm_call_count += 1
 
+    def record_tool_call(self, tool_name: str) -> None:
+        """Record that a tool was invoked."""
+        self.tool_call_count += 1
+        self.tools_invoked.append(tool_name)
+
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# REQUEST-SCOPED EXECUTION ID
+# =============================================================================
+
+
+def _generate_request_id() -> str:
+    """Generate a short, unique request ID for log correlation."""
+    return uuid.uuid4().hex[:12]
 
 
 # =============================================================================
@@ -560,6 +586,7 @@ async def _process_tool_calls(
     session: AsyncSession,
     tool_calls: list[ToolUseBlock],
     user_id: str,
+    ctx: RequestContext,
 ) -> ToolProcessingResult:
     """
     Execute tool calls and return results with terminal outcome detection.
@@ -582,6 +609,19 @@ async def _process_tool_calls(
     success_result: dict[str, Any] | None = None
 
     for tool_call in tool_calls:
+        tool_name = tool_call.name
+        ctx.record_tool_call(tool_name)
+
+        # TOOL_CALL_START
+        logger.info(
+            "TOOL_CALL_START",
+            extra={
+                **ctx._log_extra(),
+                "tool_name": tool_name,
+                "tool_index": ctx.tool_call_count,
+            },
+        )
+
         try:
             # Inject user_id server-side for security
             tool_input = cast(dict[str, Any], tool_call.input)
@@ -589,7 +629,7 @@ async def _process_tool_calls(
 
             result = await execute_tool(
                 session,
-                tool_call.name,
+                tool_name,
                 tool_input,
             )
 
@@ -598,26 +638,48 @@ async def _process_tool_calls(
                 is_terminal = True
                 terminal_reason = TerminalReason.TOOL_RETURNED_ERROR
                 error_message = str(result.get("error"))
+                # TOOL_CALL_FAILURE
                 logger.warning(
-                    "tool_returned_error",
+                    "TOOL_CALL_FAILURE",
                     extra={
-                        "tool": tool_call.name,
-                        "error": error_message,
-                        "terminal": True,
+                        **ctx._log_extra(),
+                        "tool_name": tool_name,
+                        "failure_type": "returned_error",
                     },
                 )
             # TERMINAL SUCCESS: Tool completed successfully with valid result
-            # This is the key fix - successful tool calls are TERMINAL
-            elif _is_terminal_success(tool_call.name, result):
+            elif _is_terminal_success(tool_name, result):
                 is_terminal = True
                 terminal_reason = TerminalReason.SUCCESS
-                success_tool_name = tool_call.name
+                success_tool_name = tool_name
                 success_result = result if isinstance(result, dict) else None
+
+                # TOOL_CALL_SUCCESS
                 logger.info(
-                    "tool_terminal_success",
+                    "TOOL_CALL_SUCCESS",
                     extra={
-                        "tool": tool_call.name,
-                        "terminal": True,
+                        **ctx._log_extra(),
+                        "tool_name": tool_name,
+                    },
+                )
+
+                # TERMINAL_SUCCESS_DETECTED
+                logger.info(
+                    "TERMINAL_SUCCESS_DETECTED",
+                    extra={
+                        **ctx._log_extra(),
+                        "reason": "deck_built" if tool_name == "build_deck" else "tool_success",
+                        "tool_name": tool_name,
+                    },
+                )
+            else:
+                # Tool succeeded but result is not terminal (e.g., empty results)
+                # TOOL_CALL_SUCCESS
+                logger.info(
+                    "TOOL_CALL_SUCCESS",
+                    extra={
+                        **ctx._log_extra(),
+                        "tool_name": tool_name,
                     },
                 )
 
@@ -634,13 +696,13 @@ async def _process_tool_calls(
             is_terminal = True
             terminal_reason = TerminalReason.KNOWN_FAILURE
             error_message = e.message
+            # TOOL_CALL_FAILURE
             logger.warning(
-                "tool_known_failure",
+                "TOOL_CALL_FAILURE",
                 extra={
-                    "tool": tool_call.name,
-                    "kind": e.kind.value,
-                    "error_msg": e.message,
-                    "terminal": True,
+                    **ctx._log_extra(),
+                    "tool_name": tool_name,
+                    "failure_type": "known_error",
                 },
             )
             results.append(
@@ -657,13 +719,13 @@ async def _process_tool_calls(
             is_terminal = True
             terminal_reason = TerminalReason.REFUSAL
             error_message = e.message
+            # TOOL_CALL_FAILURE
             logger.warning(
-                "tool_refusal",
+                "TOOL_CALL_FAILURE",
                 extra={
-                    "tool": tool_call.name,
-                    "kind": e.kind.value,
-                    "error_msg": e.message,
-                    "terminal": True,
+                    **ctx._log_extra(),
+                    "tool_name": tool_name,
+                    "failure_type": "refusal",
                 },
             )
             results.append(
@@ -680,12 +742,13 @@ async def _process_tool_calls(
             is_terminal = True
             terminal_reason = TerminalReason.TOOL_ERROR
             error_message = str(e)
+            # TOOL_CALL_FAILURE
             logger.exception(
-                "tool_execution_error_terminal",
+                "TOOL_CALL_FAILURE",
                 extra={
-                    "tool": tool_call.name,
-                    "error": str(e),
-                    "terminal": True,
+                    **ctx._log_extra(),
+                    "tool_name": tool_name,
+                    "failure_type": "exception",
                 },
             )
             results.append(
@@ -729,8 +792,39 @@ async def chat(
     - KnownFailure/RefusalError are TERMINAL — return immediately
     - RequestContext.is_finalized blocks ALL LLM calls after terminal
     - guard_llm_call() enforces this before every client.messages.create()
+
+    Observability:
+    - All logs include request_id for correlation
+    - Lifecycle: CHAT_REQUEST_START, CHAT_REQUEST_TERMINATED
+    - LLM calls: LLM_CALL_START, LLM_CALL_END
+    - Tool calls: TOOL_CALL_START, TOOL_CALL_SUCCESS/FAILURE
     """
+    # Generate request-scoped execution ID for log correlation
+    request_id = _generate_request_id()
+
+    # Request-scoped context for terminal state tracking and observability
+    # INVARIANT: Once ctx.is_finalized is True, NO LLM calls allowed
+    ctx = RequestContext(request_id=request_id, user_id=request.user_id)
+
+    # CHAT_REQUEST_START
+    logger.info(
+        "CHAT_REQUEST_START",
+        extra={
+            **ctx._log_extra(),
+        },
+    )
+
     if not settings.anthropic_api_key:
+        # CHAT_REQUEST_TERMINATED (config error)
+        logger.error(
+            "CHAT_REQUEST_TERMINATED",
+            extra={
+                **ctx._log_extra(),
+                "outcome": "config_error",
+                "llm_calls": 0,
+                "tool_calls": 0,
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Anthropic API key not configured",
@@ -752,9 +846,18 @@ async def chat(
         max_tokens=MAX_TOKENS_PER_REQUEST,
     )
 
-    # Request-scoped context for terminal state tracking
-    # INVARIANT: Once ctx.is_finalized is True, NO LLM calls allowed
-    ctx = RequestContext()
+    # Helper to log termination (exactly once per request)
+    def _log_terminated(outcome: str) -> None:
+        logger.info(
+            "CHAT_REQUEST_TERMINATED",
+            extra={
+                **ctx._log_extra(),
+                "outcome": outcome,
+                "llm_calls": ctx.llm_call_count,
+                "tool_calls": ctx.tool_call_count,
+                "tools_invoked": ctx.tools_invoked,
+            },
+        )
 
     # Loop to handle tool calls — budget enforced, terminal outcomes enforced
     try:
@@ -765,6 +868,17 @@ async def chat(
             # TERMINAL GUARD: Block LLM call if request is finalized
             # This is the HARD INVARIANT - no LLM calls after terminal outcome
             ctx.guard_llm_call()
+
+            call_index = ctx.llm_call_count + 1
+
+            # LLM_CALL_START
+            logger.info(
+                "LLM_CALL_START",
+                extra={
+                    **ctx._log_extra(),
+                    "call_index": call_index,
+                },
+            )
 
             # Make LLM call with tools
             response = client.messages.create(
@@ -780,6 +894,17 @@ async def chat(
             input_tokens = response.usage.input_tokens if response.usage else 0
             output_tokens = response.usage.output_tokens if response.usage else 0
             budget.record_call(input_tokens, output_tokens)
+
+            # LLM_CALL_END
+            logger.info(
+                "LLM_CALL_END",
+                extra={
+                    **ctx._log_extra(),
+                    "call_index": call_index,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                },
+            )
 
             # Record token usage metrics (PR 4)
             if response.usage:
@@ -801,13 +926,16 @@ async def chat(
                     if isinstance(block, TextBlock):
                         text_content += block.text
 
+                # CHAT_REQUEST_TERMINATED (success - no tools)
+                _log_terminated("success")
+
                 return ChatResponse(
                     message=ChatMessage(role="assistant", content=text_content),
                     tool_calls=tool_calls_made,
                 )
 
             # Process tool calls with server-injected user_id
-            tool_result = await _process_tool_calls(session, tool_use_blocks, request.user_id)
+            tool_result = await _process_tool_calls(session, tool_use_blocks, request.user_id, ctx)
 
             # Record tool calls for response
             for block in tool_use_blocks:
@@ -829,13 +957,9 @@ async def chat(
                     and tool_result.success_tool_name
                     and tool_result.success_result
                 ):
-                    logger.info(
-                        "terminal_success_exit",
-                        extra={
-                            "tool": tool_result.success_tool_name,
-                            "llm_calls": ctx.llm_call_count,
-                        },
-                    )
+                    # CHAT_REQUEST_TERMINATED (success - terminal)
+                    _log_terminated("success")
+
                     return _format_terminal_success_response(
                         tool_result.success_tool_name,
                         tool_result.success_result,
@@ -843,6 +967,9 @@ async def chat(
                     )
 
                 # TERMINAL FAILURE: Return error response
+                # CHAT_REQUEST_TERMINATED (known_failure)
+                _log_terminated("known_failure")
+
                 return _create_terminal_response(ctx, tool_calls_made)
 
             # Add assistant response and tool results to messages for next iteration
@@ -852,16 +979,10 @@ async def chat(
     except BudgetExceededError as e:
         # Budget exceeded — terminal failure, finalize and return
         ctx.finalize(TerminalReason.BUDGET_EXHAUSTED, e.message)
-        logger.warning(
-            "budget_exceeded",
-            extra={
-                "limit_type": e.limit_type,
-                "used": e.used,
-                "limit": e.limit,
-                "llm_calls": ctx.llm_call_count,
-                "tokens": budget.tokens_used,
-            },
-        )
+
+        # CHAT_REQUEST_TERMINATED (budget_exceeded)
+        _log_terminated("budget_exceeded")
+
         raise HTTPException(
             status_code=e.status_code,
             detail=e.message,

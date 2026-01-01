@@ -48,6 +48,15 @@ def mock_tool_call() -> MagicMock:
     return mock
 
 
+@pytest.fixture
+def request_ctx() -> RequestContext:
+    """Create request context for tool processing."""
+    ctx = RequestContext()
+    ctx.request_id = "test-request-id"
+    ctx.user_id = "test-user"
+    return ctx
+
+
 # =============================================================================
 # TERMINAL OUTCOME CLASSIFICATION TESTS
 # =============================================================================
@@ -61,6 +70,7 @@ class TestTerminalOutcomeClassification:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """KnownError exception triggers terminal outcome."""
         with patch(
@@ -70,7 +80,9 @@ class TestTerminalOutcomeClassification:
                 message="Collection not found",
             ),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         assert result.is_terminal is True
         assert result.terminal_reason == TerminalReason.KNOWN_FAILURE
@@ -81,6 +93,7 @@ class TestTerminalOutcomeClassification:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """RefusalError exception triggers terminal outcome."""
         with patch(
@@ -90,7 +103,9 @@ class TestTerminalOutcomeClassification:
                 message="Card name invariant violated",
             ),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         assert result.is_terminal is True
         assert result.terminal_reason == TerminalReason.REFUSAL
@@ -101,13 +116,16 @@ class TestTerminalOutcomeClassification:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """Generic exception triggers terminal outcome."""
         with patch(
             "forgebreaker.api.chat.execute_tool",
             side_effect=ValueError("Unexpected error"),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         assert result.is_terminal is True
         assert result.terminal_reason == TerminalReason.TOOL_ERROR
@@ -118,13 +136,16 @@ class TestTerminalOutcomeClassification:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """Tool returning error dict triggers terminal outcome."""
         with patch(
             "forgebreaker.api.chat.execute_tool",
             return_value={"error": "No cards found for theme"},
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         assert result.is_terminal is True
         assert result.terminal_reason == TerminalReason.TOOL_RETURNED_ERROR
@@ -135,6 +156,7 @@ class TestTerminalOutcomeClassification:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         Successful tool execution with actual content IS terminal (with SUCCESS reason).
@@ -151,7 +173,9 @@ class TestTerminalOutcomeClassification:
                 "success": True,
             },
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         # SUCCESS is now terminal - this is the key fix for the budget bug
         assert result.is_terminal is True
@@ -165,6 +189,7 @@ class TestTerminalOutcomeClassification:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         Empty results (0 cards) are NOT terminal success.
@@ -181,7 +206,9 @@ class TestTerminalOutcomeClassification:
                 "warnings": ["No cards matching theme 'goblin' found in your collection"],
             },
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         # Empty result should NOT be terminal success
         assert result.is_terminal is False
@@ -201,6 +228,7 @@ class TestNoRetryAfterTerminal:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         Contract: After KnownError, no second LLM call for retry.
@@ -217,7 +245,9 @@ class TestNoRetryAfterTerminal:
                 message="Collection not found",
             ),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         # Result must be terminal
         assert result.is_terminal is True
@@ -233,6 +263,7 @@ class TestNoRetryAfterTerminal:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         Contract: After tool exception, no second LLM call for retry.
@@ -241,7 +272,9 @@ class TestNoRetryAfterTerminal:
             "forgebreaker.api.chat.execute_tool",
             side_effect=RuntimeError("Database connection failed"),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         # Result must be terminal
         assert result.is_terminal is True
@@ -403,6 +436,7 @@ class TestCollectionCardDbMismatchTerminal:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         Collection/card DB mismatch raises KnownError which is terminal.
@@ -422,7 +456,9 @@ class TestCollectionCardDbMismatchTerminal:
                 detail="Missing 2 cards: ['Mystery Card Alpha', 'Mystery Card Beta']",
             ),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         assert result.is_terminal is True
         assert result.terminal_reason == TerminalReason.KNOWN_FAILURE
@@ -433,6 +469,7 @@ class TestCollectionCardDbMismatchTerminal:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         After mismatch error, no retry is attempted.
@@ -446,7 +483,9 @@ class TestCollectionCardDbMismatchTerminal:
                 message="Collection contains cards not in database.",
             ),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         # Terminal means is_terminal=True, so chat loop will disable tools
         assert result.is_terminal is True
@@ -742,6 +781,7 @@ class TestControlFlowEnforcement:
         self,
         mock_session: AsyncMock,
         mock_tool_call: MagicMock,
+        request_ctx: RequestContext,
     ) -> None:
         """
         When tool processing returns is_terminal=True,
@@ -757,7 +797,9 @@ class TestControlFlowEnforcement:
                 message="Data integrity error",
             ),
         ):
-            result = await _process_tool_calls(mock_session, [mock_tool_call], "test-user")
+            result = await _process_tool_calls(
+                mock_session, [mock_tool_call], "test-user", request_ctx
+            )
 
         # is_terminal MUST be True
         assert result.is_terminal is True
