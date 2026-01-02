@@ -82,5 +82,12 @@ Thumbs.db
 files.zip
 *.zip
 
+# Large data files (downloaded on-demand, not bundled)
+# Scryfall bulk data is ~100MB and must never be committed
+default-cards.json
+**/default-cards.json
+forgebreaker/data/*.json
+!forgebreaker/data/.gitkeep
+
 # Claude Code
 .claude/

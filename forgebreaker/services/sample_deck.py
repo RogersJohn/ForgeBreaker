@@ -8,6 +8,13 @@ The deck is chosen to have interesting assumptions to explore:
 - Mana curve assumptions (enough 1-2 drops for aggro)
 - Key card dependencies (what if Swiftspear is always answered?)
 - Interaction timing (can we deal with early blockers?)
+
+DESIGN PRINCIPLE: Sample data is intentionally minimal. Full card datasets
+are not bundled with the application. Large datasets like Scryfall's bulk
+card data (~100MB) are downloaded on-demand when needed for specific
+operations. The demo flow works entirely with this curated deck, which
+exercises all code paths (parsing, analysis, ML, MCP) without requiring
+external data.
 """
 
 from forgebreaker.models.deck import MetaDeck
