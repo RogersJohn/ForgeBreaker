@@ -10,10 +10,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from forgebreaker.db import get_meta_deck, get_meta_decks_by_format, meta_deck_to_model
+from forgebreaker.db import (
+    get_meta_deck,
+    get_meta_decks_by_format,
+    meta_deck_to_model,
+    upsert_meta_deck,
+)
 from forgebreaker.db.database import get_session
 from forgebreaker.jobs.update_meta import run_meta_update
 from forgebreaker.scrapers.mtggoldfish import VALID_FORMATS
+from forgebreaker.services.sample_deck import get_sample_deck
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
@@ -131,4 +137,28 @@ async def get_deck_by_name(
         win_rate=model.win_rate,
         meta_share=model.meta_share,
         source_url=model.source_url,
+    )
+
+
+@router.post("/sample", response_model=DeckResponse)
+async def create_sample_deck(
+    session: Annotated[AsyncSession, Depends(get_session)],
+) -> DeckResponse:
+    """
+    Create a sample deck for exploring ForgeBreaker.
+
+    Uses the same persistence as all other decks.
+    """
+    sample = get_sample_deck()
+    await upsert_meta_deck(session, sample)
+
+    return DeckResponse(
+        name=sample.name,
+        archetype=sample.archetype,
+        format=sample.format,
+        cards=sample.cards,
+        sideboard=sample.sideboard or {},
+        win_rate=sample.win_rate,
+        meta_share=sample.meta_share,
+        source_url=sample.source_url,
     )

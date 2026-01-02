@@ -51,6 +51,13 @@ function App() {
     localStorage.removeItem('forgebreaker_started')
   }
 
+  const handleTrySampleDeck = (deck: DeckResponse) => {
+    setHasStarted(true)
+    localStorage.setItem('forgebreaker_started', 'true')
+    setSelectedDeck(deck)
+    setActiveTab('meta')
+  }
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--color-bg-primary)' }}>
       <header
@@ -111,6 +118,7 @@ function App() {
         {!hasStarted ? (
           <LandingPage
             onStart={handleStart}
+            onTrySampleDeck={handleTrySampleDeck}
             isBackendConnected={!!health}
           />
         ) : (

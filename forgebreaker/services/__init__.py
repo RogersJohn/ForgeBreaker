@@ -101,6 +101,7 @@ from forgebreaker.services.demo_collection import (
     get_demo_cards,
     get_demo_collection,
 )
+from forgebreaker.services.sample_deck import get_sample_deck
 from forgebreaker.services.synergy_finder import (
     SynergyResult,
     find_synergies,
@@ -164,6 +165,8 @@ __all__ = [
     "get_demo_collection",
     "get_demo_cards",
     "demo_collection_available",
+    # Sample deck
+    "get_sample_deck",
     # Collection sanitization (import-time)
     "SanitizationResult",
     "sanitize_collection",

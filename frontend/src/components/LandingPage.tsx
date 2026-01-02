@@ -1,9 +1,30 @@
+import { useState } from 'react'
+import type { DeckResponse } from '../api/client'
+import { apiClient } from '../api/client'
+
 interface LandingPageProps {
   onStart: () => void
+  onTrySampleDeck: (deck: DeckResponse) => void
   isBackendConnected: boolean
 }
 
-export function LandingPage({ onStart, isBackendConnected }: LandingPageProps) {
+export function LandingPage({ onStart, onTrySampleDeck, isBackendConnected }: LandingPageProps) {
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleTrySampleDeck = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const deck = await apiClient.createSampleDeck()
+      onTrySampleDeck(deck)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load sample deck')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-[calc(100vh-var(--header-height,120px))] flex flex-col items-center justify-center px-4">
       {/* Hero - Lead with the question */}
@@ -84,8 +105,8 @@ export function LandingPage({ onStart, isBackendConnected }: LandingPageProps) {
             <div className="flex-1 h-px" style={{ backgroundColor: 'var(--color-border)' }} />
           </div>
           <button
-            onClick={onStart}
-            disabled={!isBackendConnected}
+            onClick={handleTrySampleDeck}
+            disabled={!isBackendConnected || isLoading}
             className="w-full px-6 py-3 font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
             style={{
               backgroundColor: 'var(--color-bg-elevated)',
@@ -93,10 +114,15 @@ export function LandingPage({ onStart, isBackendConnected }: LandingPageProps) {
               border: '1px solid var(--color-border)',
             }}
           >
-            Try with Sample Collection
+            {isLoading ? 'Loading...' : 'Try with Sample Deck'}
           </button>
+          {error && (
+            <p className="text-xs text-center" style={{ color: 'var(--color-accent-primary)' }}>
+              {error}
+            </p>
+          )}
           <p className="text-xs text-center" style={{ color: 'var(--color-text-secondary)' }}>
-            No MTG Arena account needed—explore with sample data first.
+            No MTG Arena account needed—explore a Mono-Red Aggro deck first.
           </p>
           {isBackendConnected && (
             <p className="text-xs text-center" style={{ color: 'var(--color-text-secondary)' }}>

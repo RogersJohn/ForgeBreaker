@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiClient, StressScenarioRequest } from '../api/client'
+import type { StressScenarioRequest } from '../api/client'
+import { apiClient } from '../api/client'
 
 export function useDecks(format: string, limit = 50) {
   return useQuery({

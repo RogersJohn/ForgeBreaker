@@ -296,6 +296,13 @@ class ApiClient {
       `/stress/breaking-point/${userId}/${format}/${encodeURIComponent(deckName)}`
     )
   }
+
+  // Sample deck
+  async createSampleDeck(): Promise<DeckResponse> {
+    return this.request('/decks/sample', {
+      method: 'POST',
+    })
+  }
 }
 
 export const apiClient = new ApiClient()
