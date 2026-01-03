@@ -1,12 +1,9 @@
 """
 Sample deck for demo mode.
 
-Provides a real tournament-winning Standard deck that demonstrates
-ForgeBreaker's assumption surfacing, fragility analysis, and stress
-testing capabilities.
-
-Source: Ken Yukuhiro's 1st place deck from Pro Tour Final Fantasy
-(June 20, 2025), with a 9-1 record.
+This sample deck is intentionally human-curated to provide a clear,
+representative example for first-time users. Demo decks prioritize
+clarity and analysis value over historical performance.
 
 DESIGN PRINCIPLE: Sample data is intentionally minimal. Full card datasets
 are not bundled with the application. Large datasets like Scryfall's bulk
@@ -18,44 +15,35 @@ external data.
 
 from forgebreaker.models.deck import MetaDeck
 
-# Ken Yukuhiro's Pro Tour Final Fantasy winning Mono-Red Aggro
-# Source: https://www.mtggoldfish.com/deck/7186307
+# Curated Gruul sample deck for demo purposes
 SAMPLE_DECK = MetaDeck(
-    name="Mono-Red Aggro (Pro Tour Final Fantasy 1st)",
-    archetype="aggro",
+    name="Sample Deck",
+    archetype="midrange",
     format="standard",
     cards={
-        # Creatures (24)
-        "Heartfire Hero": 4,
-        "Manifold Mouse": 4,
-        "Emberheart Challenger": 4,
-        "Hired Claw": 4,
-        "Magebane Lizard": 3,
-        "Twinmaw Stormbrood": 4,
-        "Tersa Lightshatter": 1,
-        # Spells (13)
+        # Creatures
+        "Badgermole Cub": 2,
+        "Bristly Bill, Spine Sower": 2,
+        "Mossborn Hydra": 4,
+        "Earth Kingdom General": 4,
+        "Haru, Hidden Talent": 3,
+        "The Boulder, Ready to Rumble": 1,
+        # Spells
+        "Shock": 4,
         "Burst Lightning": 4,
-        "Monstrous Rage": 4,
-        "Lightning Strike": 1,
-        "Self-Destruct": 1,
-        "Screaming Nemesis": 3,
-        # Lands (23)
-        "Mountain": 17,
-        "Rockface Village": 4,
-        "Soulstone Sanctuary": 2,
+        "Explosive Derailment": 4,
+        "Ride the Shoopuf": 2,
+        "Earthbender Ascension": 2,
+        "Sazh's Chocobo": 1,
+        "The Legend of Kyoshi": 3,
+        # Lands
+        "Forest": 14,
+        "Mountain": 10,
     },
-    sideboard={
-        "Soul-Guide Lantern": 2,
-        "Suplex": 2,
-        "Torch the Tower": 3,
-        "Lithomantic Barrage": 2,
-        "Magebane Lizard": 1,
-        "Case of the Crimson Pulse": 2,
-        "Sunspine Lynx": 3,
-    },
-    win_rate=0.90,
-    meta_share=0.102,
-    source_url="https://www.mtggoldfish.com/deck/7186307",
+    sideboard={},
+    win_rate=None,
+    meta_share=None,
+    source_url=None,
 )
 
 
@@ -70,7 +58,7 @@ def get_sample_deck() -> MetaDeck:
         archetype=SAMPLE_DECK.archetype,
         format=SAMPLE_DECK.format,
         cards=SAMPLE_DECK.cards.copy(),
-        sideboard=SAMPLE_DECK.sideboard.copy(),
+        sideboard=SAMPLE_DECK.sideboard.copy() if SAMPLE_DECK.sideboard else {},
         win_rate=SAMPLE_DECK.win_rate,
         meta_share=SAMPLE_DECK.meta_share,
         source_url=SAMPLE_DECK.source_url,

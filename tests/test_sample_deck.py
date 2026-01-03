@@ -22,18 +22,9 @@ class TestSampleDeckDefinition:
         """Sample deck should be in standard format."""
         assert SAMPLE_DECK.format == "standard"
 
-    def test_sample_deck_is_aggro_archetype(self) -> None:
-        """Sample deck should be an aggro archetype."""
-        assert SAMPLE_DECK.archetype == "aggro"
-
-    def test_sample_deck_has_sideboard(self) -> None:
-        """Sample deck should have a sideboard."""
-        sideboard_count = sum(SAMPLE_DECK.sideboard.values())
-        assert sideboard_count == 15, f"Expected 15 sideboard cards, got {sideboard_count}"
-
-    def test_sample_deck_has_source_url(self) -> None:
-        """Sample deck should have a source URL."""
-        assert SAMPLE_DECK.source_url is not None
+    def test_sample_deck_has_archetype(self) -> None:
+        """Sample deck should have an archetype."""
+        assert SAMPLE_DECK.archetype is not None
 
     def test_get_sample_deck_returns_copy(self) -> None:
         """get_sample_deck() should return a copy, not the original."""
