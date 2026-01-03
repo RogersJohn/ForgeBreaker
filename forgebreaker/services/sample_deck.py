@@ -1,13 +1,12 @@
 """
 Sample deck for demo mode.
 
-Provides a realistic Standard deck that demonstrates ForgeBreaker's
-assumption surfacing, fragility analysis, and stress testing capabilities.
+Provides a real tournament-winning Standard deck that demonstrates
+ForgeBreaker's assumption surfacing, fragility analysis, and stress
+testing capabilities.
 
-The deck is chosen to have interesting assumptions to explore:
-- Mana curve assumptions (enough 1-2 drops for aggro)
-- Key card dependencies (what if Swiftspear is always answered?)
-- Interaction timing (can we deal with early blockers?)
+Source: Ken Yukuhiro's 1st place deck from Pro Tour Final Fantasy
+(June 20, 2025), with a 9-1 record.
 
 DESIGN PRINCIPLE: Sample data is intentionally minimal. Full card datasets
 are not bundled with the application. Large datasets like Scryfall's bulk
@@ -19,42 +18,44 @@ external data.
 
 from forgebreaker.models.deck import MetaDeck
 
-# Mono-Red Aggro - a classic archetype with clear assumptions
-# This deck has interesting fragility points:
-# - Heavily reliant on early creatures connecting
-# - Needs to close games quickly before stabilization
-# - Burn spells do double duty (removal + reach)
+# Ken Yukuhiro's Pro Tour Final Fantasy winning Mono-Red Aggro
+# Source: https://www.mtggoldfish.com/deck/7186307
 SAMPLE_DECK = MetaDeck(
-    name="Sample: Mono-Red Aggro",
+    name="Mono-Red Aggro (Pro Tour Final Fantasy 1st)",
     archetype="aggro",
     format="standard",
     cards={
-        # Creatures (20)
-        "Monastery Swiftspear": 4,
-        "Slickshot Show-Off": 4,
+        # Creatures (24)
         "Heartfire Hero": 4,
-        "Cacophony Scamp": 4,
-        "Phoenix Chick": 4,
-        # Spells (20)
-        "Play with Fire": 4,
+        "Manifold Mouse": 4,
+        "Emberheart Challenger": 4,
+        "Hired Claw": 4,
+        "Magebane Lizard": 3,
+        "Twinmaw Stormbrood": 4,
+        "Tersa Lightshatter": 1,
+        # Spells (13)
+        "Burst Lightning": 4,
         "Monstrous Rage": 4,
-        "Lightning Strike": 4,
-        "Kumano Faces Kakkazan": 4,
-        "Searing Spear": 4,
-        # Lands (20)
-        "Mountain": 20,
+        "Lightning Strike": 1,
+        "Self-Destruct": 1,
+        "Screaming Nemesis": 3,
+        # Lands (23)
+        "Mountain": 17,
+        "Rockface Village": 4,
+        "Soulstone Sanctuary": 2,
     },
     sideboard={
-        "Rending Flame": 3,
-        "Nahiri's Warcrafting": 2,
-        "Obliterating Bolt": 2,
-        "End the Festivities": 4,
-        "Urabrask's Forge": 2,
-        "Screaming Nemesis": 2,
+        "Soul-Guide Lantern": 2,
+        "Suplex": 2,
+        "Torch the Tower": 3,
+        "Lithomantic Barrage": 2,
+        "Magebane Lizard": 1,
+        "Case of the Crimson Pulse": 2,
+        "Sunspine Lynx": 3,
     },
-    win_rate=0.52,
-    meta_share=0.08,
-    source_url="https://github.com/RogersJohn/ForgeBreaker",
+    win_rate=0.90,
+    meta_share=0.102,
+    source_url="https://www.mtggoldfish.com/deck/7186307",
 )
 
 
